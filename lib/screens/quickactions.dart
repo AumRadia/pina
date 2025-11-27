@@ -1,36 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:pina/screens/secrets.dart'; // Ensure your API Key is here
+import 'package:pina/screens/secrets.dart'; // Ensure this points to your API Key
 
-class ImpactAnalysisScreen extends StatefulWidget {
+class QuickActionScreen extends StatefulWidget {
   final String articleUrl;
   final String title;
   final String description;
 
-  const ImpactAnalysisScreen({
+  const QuickActionScreen({
     super.key,
     required this.articleUrl,
-    required this.description,
     required this.title,
+    required this.description,
   });
 
   @override
-  State<ImpactAnalysisScreen> createState() => _ImpactAnalysisScreenState();
+  State<QuickActionScreen> createState() => _QuickActionScreenState();
 }
 
-class _ImpactAnalysisScreenState extends State<ImpactAnalysisScreen> {
-  String? _analysisText;
+class _QuickActionScreenState extends State<QuickActionScreen> {
+  String? _actionText;
   bool _isLoading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _fetchFullAnalysis();
+    _fetchFullActions();
   }
 
-  Future<void> _fetchFullAnalysis() async {
+  Future<void> _fetchFullActions() async {
     try {
       final response = await http.post(
         Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
@@ -40,19 +40,21 @@ class _ImpactAnalysisScreenState extends State<ImpactAnalysisScreen> {
         },
         body: jsonEncode({
           "model": "llama-3.1-8b-instant",
-          // We allow more tokens here because this is the deep dive
-          "max_tokens": 1500,
+          "max_tokens": 1500, // Large limit for detailed steps
           "messages": [
             {
               "role": "user",
-              // FIXED: Uses Title and Desc
+              // FIXED: Uses title and description instead of URL
               "content":
                   "Analyze this news event:\n"
                   "HEADLINE: ${widget.title}\n"
                   "DETAILS: ${widget.description}\n\n"
-                  "TASK: Provide a comprehensive, detailed impact analysis on all stakeholders involved.\n"
-                  "FORMAT: Plain text, clearly structured paragraphs.\n"
-                  "Avoid using markdown symbols like ** or ## if possible, just clear text.",
+                  "TASK: Create a comprehensive 'Action Plan' based on this news.\n"
+                  "OUTPUT FORMAT:\n"
+                  "1. Immediate Actions (Do this now)\n"
+                  "2. Long-term Strategy (Plan for later)\n"
+                  "3. Key Risks to Watch\n\n"
+                  "Use bullet points and clear, professional language.",
             },
           ],
         }),
@@ -62,10 +64,9 @@ class _ImpactAnalysisScreenState extends State<ImpactAnalysisScreen> {
         final data = jsonDecode(response.body);
         if (data['choices'] != null && (data['choices'] as List).isNotEmpty) {
           String content = data['choices'][0]['message']['content'];
-
           if (mounted) {
             setState(() {
-              _analysisText = content.trim();
+              _actionText = content.trim();
               _isLoading = false;
             });
           }
@@ -79,7 +80,7 @@ class _ImpactAnalysisScreenState extends State<ImpactAnalysisScreen> {
       if (mounted) {
         setState(() {
           _error =
-              "Could not generate full analysis. Please check your connection.";
+              "Could not generate action plan. Please check your connection.";
           _isLoading = false;
         });
       }
@@ -90,8 +91,9 @@ class _ImpactAnalysisScreenState extends State<ImpactAnalysisScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Full Impact Analysis"),
-        backgroundColor: Colors.blue.shade700,
+        title: const Text("Action Plan"),
+        // Green theme to differentiate from Impact Analysis (Blue)
+        backgroundColor: Colors.green.shade700,
         foregroundColor: Colors.white,
       ),
       body: Padding(
@@ -101,10 +103,10 @@ class _ImpactAnalysisScreenState extends State<ImpactAnalysisScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const CircularProgressIndicator(),
+                    CircularProgressIndicator(color: Colors.green.shade700),
                     const SizedBox(height: 16),
                     Text(
-                      "Consulting AI Expert...",
+                      "Consulting Strategist AI...",
                       style: TextStyle(color: Colors.grey.shade600),
                     ),
                   ],
@@ -133,8 +135,12 @@ class _ImpactAnalysisScreenState extends State<ImpactAnalysisScreen> {
                           _isLoading = true;
                           _error = null;
                         });
-                        _fetchFullAnalysis();
+                        _fetchFullActions();
                       },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        foregroundColor: Colors.white,
+                      ),
                       child: const Text("Retry"),
                     ),
                   ],
@@ -142,10 +148,10 @@ class _ImpactAnalysisScreenState extends State<ImpactAnalysisScreen> {
               )
             : SingleChildScrollView(
                 child: Text(
-                  _analysisText!,
+                  _actionText!,
                   style: const TextStyle(
                     fontSize: 16,
-                    height: 1.6,
+                    height: 1.6, // Good line height for reading lists
                     color: Colors.black87,
                   ),
                 ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pina/screens/homescreen.dart';
 import 'package:pina/screens/loginscreen.dart';
+import 'package:pina/screens/main_menu_screen.dart';
 import 'package:pina/screens/my_ai_screen.dart';
 import 'package:pina/screens/registration.dart';
 import 'package:pina/screens/trial.dart';
@@ -19,7 +20,7 @@ class Mainapp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: const LoginScreen(), // Entry point of the flow.
+      home: MainMenuScreen(), // Entry point of the flow.
     );
   }
 }
