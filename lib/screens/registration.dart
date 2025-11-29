@@ -4,12 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:pina/screens/constants.dart';
 import 'package:pina/screens/loginscreen.dart';
-import 'package:pina/screens/interest.dart'; // Import Interest Screen
-import 'dart:async';
-// --- CONFIGURATION ---
-// UPDATED IP ADDRESS
-const String baseUrl = "http://10.11.161.23:4000";
+// import 'package:pina/screens/interest.dart'; // Uncomment if you have this file
+import 'dart:async'; // Import the constants file
 
 class Registration extends StatefulWidget {
   const Registration({super.key});
@@ -103,16 +101,21 @@ class _RegistrationState extends State<Registration> {
         return;
       }
 
-      // 1. UPDATED URL
-      final url = Uri.parse("$baseUrl/api/auth/google-auth");
+      // UPDATED: Now uses ApiConstants
+      final url = Uri.parse("${ApiConstants.authUrl}/api/auth/google-auth");
 
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"idToken": idToken}),
-      ).timeout(const Duration(seconds: 12), onTimeout: () {
-        throw TimeoutException("Google sign-in timed out. Please retry.");
-      });
+      final response = await http
+          .post(
+            url,
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({"idToken": idToken}),
+          )
+          .timeout(
+            const Duration(seconds: 12),
+            onTimeout: () {
+              throw TimeoutException("Google sign-in timed out. Please retry.");
+            },
+          );
 
       final data = jsonDecode(response.body);
 
@@ -134,13 +137,19 @@ class _RegistrationState extends State<Registration> {
             userEmail = googleUser.email;
           }
 
-          // 2. NAVIGATE TO INTEREST SCREEN
-          Navigator.pushReplacement(
+          // Navigate to next screen (Replace Interest with your actual next screen if needed)
+          /* Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (context) =>
                   Interest(userName: userName, userEmail: userEmail),
             ),
+          );
+          */
+          // For now, going to Login Screen as fallback or MainMenu if preferred
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => LoginScreen()),
           );
         } else {
           showMessage(data["message"] ?? "Google Sign-In failed on server.");
@@ -169,8 +178,8 @@ class _RegistrationState extends State<Registration> {
     }
 
     try {
-      // 1. UPDATED URL
-      final url = Uri.parse("$baseUrl/api/auth/register");
+      // UPDATED: Now uses ApiConstants
+      final url = Uri.parse("${ApiConstants.authUrl}/api/auth/register");
 
       String? base64Image;
       if (selectedImage != null) {
@@ -178,21 +187,26 @@ class _RegistrationState extends State<Registration> {
         base64Image = base64Encode(imageBytes);
       }
 
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "name": name,
-          "email": email,
-          "mobile": mobile,
-          "password": password,
-          "status": "active",
-          "usertype": "free",
-          "profilePicture": base64Image,
-        }),
-      ).timeout(const Duration(seconds: 12), onTimeout: () {
-        throw TimeoutException("Registration timed out. Please retry.");
-      });
+      final response = await http
+          .post(
+            url,
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "name": name,
+              "email": email,
+              "mobile": mobile,
+              "password": password,
+              "status": "active",
+              "usertype": "free",
+              "profilePicture": base64Image,
+            }),
+          )
+          .timeout(
+            const Duration(seconds: 12),
+            onTimeout: () {
+              throw TimeoutException("Registration timed out. Please retry.");
+            },
+          );
 
       final data = jsonDecode(response.body);
 
@@ -202,11 +216,11 @@ class _RegistrationState extends State<Registration> {
         await Future.delayed(const Duration(seconds: 1));
 
         if (mounted) {
-          // 2. NAVIGATE TO INTEREST SCREEN (Passing Name & Email)
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (context) => Interest(userName: name, userEmail: email),
+              // builder: (context) => Interest(userName: name, userEmail: email),
+              builder: (context) => LoginScreen(),
             ),
           );
         }

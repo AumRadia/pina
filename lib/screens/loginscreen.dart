@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:pina/screens/constants.dart';
+import 'package:pina/screens/main_menu_screen.dart';
 import 'package:pina/screens/registration.dart';
-import 'package:pina/screens/trial.dart';
 import 'dart:async';
+
+import 'package:pina/screens/trial.dart'; // Import the constants file
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -42,15 +45,21 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => loading = true);
 
     try {
-      final url = Uri.parse("http://10.11.161.23:4000/api/auth/login");
+      // UPDATED: Now uses ApiConstants
+      final url = Uri.parse("${ApiConstants.authUrl}/api/auth/login");
 
-      final res = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"email": email, "password": password}),
-      ).timeout(const Duration(seconds: 12), onTimeout: () {
-        throw TimeoutException("Login timed out. Please retry.");
-      });
+      final res = await http
+          .post(
+            url,
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({"email": email, "password": password}),
+          )
+          .timeout(
+            const Duration(seconds: 12),
+            onTimeout: () {
+              throw TimeoutException("Login timed out. Please retry.");
+            },
+          );
 
       final data = jsonDecode(res.body);
 
@@ -67,15 +76,13 @@ class _LoginScreenState extends State<LoginScreen> {
           userEmail = data['user']['email'] ?? userEmail;
         }
 
-        // Navigate to Trial with the NAME and EMAIL
+        // Navigate to MainMenu with the NAME and EMAIL
         if (mounted) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (context) => Trial(
-                userName: userName,
-                userEmail: userEmail, // Passing the real email
-              ),
+              builder: (context) =>
+                  Trial(userName: userName, userEmail: userEmail),
             ),
           );
         }
@@ -84,7 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (e) {
       print(e);
-      showMessage("Server error");
+      showMessage("Server error: $e");
     }
 
     setState(() => loading = false);
@@ -112,16 +119,22 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      const baseUrl = "http://10.11.161.23:4000";
+      // UPDATED: Now uses ApiConstants
+      const baseUrl = ApiConstants.authUrl;
       final url = Uri.parse("$baseUrl/api/auth/google-auth");
 
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"idToken": idToken}),
-      ).timeout(const Duration(seconds: 12), onTimeout: () {
-        throw TimeoutException("Google sign-in timed out. Please retry.");
-      });
+      final response = await http
+          .post(
+            url,
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({"idToken": idToken}),
+          )
+          .timeout(
+            const Duration(seconds: 12),
+            onTimeout: () {
+              throw TimeoutException("Google sign-in timed out. Please retry.");
+            },
+          );
 
       final data = jsonDecode(response.body);
 
@@ -146,14 +159,12 @@ class _LoginScreenState extends State<LoginScreen> {
             userEmail = googleUser.email;
           }
 
-          // Navigate to Trial with the NAME and EMAIL
+          // Navigate to MainMenu (NOT Trial)
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (context) => Trial(
-                userName: userName,
-                userEmail: userEmail, // Passing the real email
-              ),
+              builder: (context) =>
+                  Trial(userName: userName, userEmail: userEmail),
             ),
           );
         } else if (response.statusCode == 409) {
@@ -205,7 +216,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 30),
 
-                // Email Field
                 TextField(
                   controller: emailController,
                   decoration: const InputDecoration(
@@ -216,7 +226,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 20),
 
-                // Password Field
                 TextField(
                   controller: passwordController,
                   obscureText: true,
@@ -228,7 +237,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 30),
 
-                // Login Button
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -241,7 +249,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // Sign Up Button
                 SizedBox(
                   width: double.infinity,
                   height: 50,

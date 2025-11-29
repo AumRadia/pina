@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:pina/screens/landing.dart';
 
 class MainMenuScreen extends StatelessWidget {
+  final String userName; // <--- 1. Add Variable
+
+  // 2. Add Constructor
+  MainMenuScreen({required this.userName, super.key, required String userEmail});
+
   final Map<String, List<String>> menu = {
     "Text": [
       "Text to Text",
@@ -43,15 +48,15 @@ class MainMenuScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Main Menu"),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text("Main Menu"), centerTitle: true),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: menu.entries.map((entry) {
           return ExpansionTile(
-            title: Text(entry.key, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            title: Text(
+              entry.key,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
             children: entry.value.map((sub) {
               return ListTile(
                 title: Text(sub),
@@ -60,7 +65,9 @@ class MainMenuScreen extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => LandingScreen(title: sub),
+                      // 3. Pass Name to Landing
+                      builder: (_) =>
+                          LandingScreen(title: sub, userName: userName),
                     ),
                   );
                 },

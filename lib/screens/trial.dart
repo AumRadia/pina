@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pina/models/news_article.dart';
 import 'package:pina/screens/impact.dart';
-import 'package:pina/screens/quickactions.dart'; // IMPORT ADDED
+import 'package:pina/screens/quickactions.dart';
 import 'package:pina/screens/my_ai_screen.dart';
 import 'package:pina/screens/secrets.dart'; // Ensure API Key is here
 import 'package:pina/services/news_service.dart';
@@ -11,6 +11,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'package:visibility_detector/visibility_detector.dart';
+import 'package:share_plus/share_plus.dart';
+
+// --- ENUM FOR ACCORDION LOGIC ---
+enum ActiveSection { none, title, desc, impact, action }
 
 class Trial extends StatefulWidget {
   final String userName;
@@ -27,6 +31,10 @@ class _TrialState extends State<Trial> {
   List<NewsArticle> articles = [];
   bool isLoading = true;
   String _currentLanguage = 'English';
+
+  // --- GLOBAL ACCORDION STATE ---
+  String? _expandedArticleUrl;
+  ActiveSection _expandedSection = ActiveSection.none;
 
   @override
   void initState() {
@@ -55,6 +63,19 @@ class _TrialState extends State<Trial> {
       MaterialPageRoute(builder: (context) => const LoginScreen()),
       (route) => false,
     );
+  }
+
+  // Logic to handle expansion across ALL cards
+  void _onSectionToggle(String url, ActiveSection section) {
+    setState(() {
+      if (_expandedArticleUrl == url && _expandedSection == section) {
+        _expandedSection = ActiveSection.none;
+        _expandedArticleUrl = null;
+      } else {
+        _expandedArticleUrl = url;
+        _expandedSection = section;
+      }
+    });
   }
 
   @override
@@ -92,7 +113,6 @@ class _TrialState extends State<Trial> {
                   ),
                 );
               },
-              // icon: const Icon(Icons.smart_toy, color: Colors.white),
               label: const Text(
                 "My Ai",
                 style: TextStyle(
@@ -125,6 +145,12 @@ class _TrialState extends State<Trial> {
                   final article = articles[index];
                   final bool isEven = index % 2 == 0;
 
+                  final bool isThisCardActive =
+                      _expandedArticleUrl == article.link;
+                  final ActiveSection currentCardSection = isThisCardActive
+                      ? _expandedSection
+                      : ActiveSection.none;
+
                   return NewsCard(
                     key: ValueKey(article.link),
                     title: article.title,
@@ -132,6 +158,7 @@ class _TrialState extends State<Trial> {
                         ? article.description
                         : "No description available.",
                     articleUrl: article.link,
+                    userEmail: widget.userEmail, // <--- PASSED EMAIL HERE
                     bg: isEven ? Colors.blue.shade50 : Colors.purple.shade50,
                     border: isEven
                         ? Colors.blue.shade200
@@ -139,6 +166,9 @@ class _TrialState extends State<Trial> {
                     titleColor: isEven
                         ? Colors.blue.shade900
                         : Colors.purple.shade900,
+                    activeSection: currentCardSection,
+                    onSectionChange: (section) =>
+                        _onSectionToggle(article.link, section),
                   );
                 },
               ),
@@ -152,18 +182,25 @@ class NewsCard extends StatefulWidget {
   final String title;
   final String desc;
   final String articleUrl;
+  final String userEmail; // <--- ADDED EMAIL FIELD
   final Color bg;
   final Color border;
   final Color titleColor;
+
+  final ActiveSection activeSection;
+  final Function(ActiveSection) onSectionChange;
 
   const NewsCard({
     super.key,
     required this.title,
     required this.desc,
     required this.articleUrl,
+    required this.userEmail, // <--- REQUIRED
     required this.bg,
     required this.border,
     required this.titleColor,
+    required this.activeSection,
+    required this.onSectionChange,
   });
 
   @override
@@ -172,23 +209,22 @@ class NewsCard extends StatefulWidget {
 
 class _NewsCardState extends State<NewsCard>
     with AutomaticKeepAliveClientMixin {
-  // Independent States for expansion
-  bool _titleExpanded = false;
-  bool _descExpanded = false;
-  bool _impactExpanded = false;
-  bool _actionExpanded = false;
-
-  // Data Storage
+  // AI Data
   String? _impactSummary;
   String? _actionSummary;
-
   bool _isFetched = false;
   bool _isLoading = false;
   String? _error;
   Timer? _debounceTimer;
 
+  // Interaction State
+  bool _isLiked = false;
+  bool _isDisliked = false;
+  bool _isSubscribed = false;
+
   @override
-  bool get wantKeepAlive => _isFetched || _titleExpanded || _descExpanded;
+  bool get wantKeepAlive =>
+      _isFetched || widget.activeSection != ActiveSection.none;
 
   void _handleVisibilityChanged(VisibilityInfo info) {
     if (_isFetched || _isLoading) return;
@@ -203,7 +239,9 @@ class _NewsCardState extends State<NewsCard>
     }
   }
 
-  // Optimized API Call: Fetches Impact AND Action summaries together
+  // --- API CALLS ---
+
+  // 1. Fetch AI Summary
   Future<void> _fetchAiData() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
@@ -223,7 +261,6 @@ class _NewsCardState extends State<NewsCard>
           "messages": [
             {
               "role": "user",
-              // FIXED: Now uses Title and Desc
               "content":
                   "Analyze this news event:\n"
                   "HEADLINE: ${widget.title}\n"
@@ -271,6 +308,94 @@ class _NewsCardState extends State<NewsCard>
     }
   }
 
+  // 2. Log Interaction (Like, Share, etc.)
+  Future<void> _logInteraction(String action) async {
+    // NOTE: Use 10.0.2.2 for Android Emulator, 'localhost' for iOS Sim, or your PC's IP for physical device
+    const String apiUrl = "http://10.74.182.23:4000/api/interactions/log";
+
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "userEmail": widget.userEmail,
+          "newsId": widget.articleUrl,
+          "action": action,
+          "platform": "mobile",
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        print("Logged $action successfully");
+      } else {
+        print("Failed to log $action: ${response.body}");
+      }
+    } catch (e) {
+      print("Error logging interaction: $e");
+    }
+  }
+
+  // --- Interaction Event Handlers ---
+
+  void _toggleLike() {
+    setState(() {
+      _isLiked = !_isLiked;
+      if (_isLiked) {
+        _isDisliked = false;
+        _logInteraction("like"); // Log API
+      }
+    });
+  }
+
+  void _toggleDislike() {
+    setState(() {
+      _isDisliked = !_isDisliked;
+      if (_isDisliked) {
+        _isLiked = false;
+        _logInteraction("dislike"); // Log API
+      }
+    });
+  }
+
+  void _toggleSubscribe() {
+    setState(() {
+      _isSubscribed = !_isSubscribed;
+    });
+    // Log either subscribe or unsubscribe based on the new state
+    _logInteraction(_isSubscribed ? "subscribe" : "unsubscribe");
+  }
+
+  void _handleShare() {
+    final StringBuffer contentToShare = StringBuffer();
+    contentToShare.writeln("堂 *${widget.title}*");
+    contentToShare.writeln();
+    contentToShare.writeln("迫 ${widget.articleUrl}");
+
+    if (_impactSummary != null && _impactSummary!.isNotEmpty) {
+      contentToShare.writeln();
+      contentToShare.writeln("､*AI Impact Analysis:*");
+      contentToShare.writeln(_impactSummary);
+    }
+
+    if (_actionSummary != null && _actionSummary!.isNotEmpty) {
+      contentToShare.writeln();
+      contentToShare.writeln("噫 *Quick Actions:*");
+      contentToShare.writeln(_actionSummary);
+    }
+
+    // 1. Trigger Native Share
+    Share.share(contentToShare.toString());
+
+    // 2. Log to Backend
+    _logInteraction("share");
+  }
+
+  void _handleStickToExpert() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Stick to Expert feature coming soon!")),
+    );
+  }
+
   @override
   void dispose() {
     _debounceTimer?.cancel();
@@ -298,27 +423,28 @@ class _NewsCardState extends State<NewsCard>
             // 1. TITLE
             ControllableSmartText(
               text: widget.title,
-              isExpanded: _titleExpanded,
+              isExpanded: widget.activeSection == ActiveSection.title,
               wordLimit: 25,
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: widget.titleColor,
               ),
-              onToggle: () => setState(() => _titleExpanded = !_titleExpanded),
+              onExpand: () => widget.onSectionChange(ActiveSection.title),
             ),
+
             const SizedBox(height: 8),
 
             // 2. DESCRIPTION
             ControllableSmartText(
               text: widget.desc,
-              isExpanded: _descExpanded,
+              isExpanded: widget.activeSection == ActiveSection.desc,
               wordLimit: 25,
               style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
-              onToggle: () => setState(() => _descExpanded = !_descExpanded),
+              onExpand: () => widget.onSectionChange(ActiveSection.desc),
             ),
 
-            const Divider(height: 24),
+            const Divider(height: 16),
 
             // 3. IMPACT SECTION
             _buildSectionHeader("Impact Summary:"),
@@ -329,11 +455,10 @@ class _NewsCardState extends State<NewsCard>
             else if (_impactSummary != null)
               ControllableSmartText(
                 text: _impactSummary!,
-                isExpanded: _impactExpanded,
+                isExpanded: widget.activeSection == ActiveSection.impact,
                 wordLimit: 25,
                 style: const TextStyle(fontSize: 15, height: 1.4),
-                onToggle: () =>
-                    setState(() => _impactExpanded = !_impactExpanded),
+                onExpand: () => widget.onSectionChange(ActiveSection.impact),
                 extraContent: _buildNavButton(
                   "Show Full Impact Analysis",
                   Colors.deepPurple,
@@ -359,22 +484,20 @@ class _NewsCardState extends State<NewsCard>
             else if (_actionSummary != null)
               ControllableSmartText(
                 text: _actionSummary!,
-                isExpanded: _actionExpanded,
+                isExpanded: widget.activeSection == ActiveSection.action,
                 wordLimit: 25,
                 style: const TextStyle(
                   fontSize: 15,
                   height: 1.4,
                   color: Colors.black87,
                 ),
-                onToggle: () =>
-                    setState(() => _actionExpanded = !_actionExpanded),
+                onExpand: () => widget.onSectionChange(ActiveSection.action),
                 extraContent: _buildNavButton(
                   "Show All Actions",
                   Colors.green.shade700,
                   () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      // FIXED: Passes Title/Desc correctly
                       builder: (context) => QuickActionScreen(
                         articleUrl: widget.articleUrl,
                         title: widget.title,
@@ -384,6 +507,130 @@ class _NewsCardState extends State<NewsCard>
                   ),
                 ),
               ),
+
+            const SizedBox(height: 20),
+            const Divider(),
+
+            // --- ACTION BUTTONS ROW (Like, Dislike, Share, Subscribe) ---
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  // 1. LIKE
+                  InkWell(
+                    onTap: _toggleLike,
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        right: 12.0,
+                        top: 8,
+                        bottom: 8,
+                      ),
+                      child: Icon(
+                        _isLiked ? Icons.thumb_up : Icons.thumb_up_off_alt,
+                        color: _isLiked ? Colors.blue : Colors.grey.shade600,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+
+                  // 2. DISLIKE
+                  InkWell(
+                    onTap: _toggleDislike,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12.0,
+                        vertical: 8,
+                      ),
+                      child: Icon(
+                        _isDisliked
+                            ? Icons.thumb_down
+                            : Icons.thumb_down_off_alt,
+                        color: _isDisliked
+                            ? Colors.black
+                            : Colors.grey.shade600,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+
+                  // 3. SHARE
+                  InkWell(
+                    onTap: _handleShare,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12.0,
+                        vertical: 8,
+                      ),
+                      child: Icon(
+                        Icons.share,
+                        color: Colors.blue.shade600,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+
+                  // SPACER
+                  const SizedBox(width: 16),
+
+                  // 4. SUBSCRIBE BUTTON
+                  GestureDetector(
+                    onTap: _toggleSubscribe,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _isSubscribed
+                            ? Colors.grey.shade300
+                            : widget.titleColor,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: _isSubscribed
+                              ? Colors.grey
+                              : widget.titleColor,
+                        ),
+                      ),
+                      child: Text(
+                        _isSubscribed ? "Subscribed" : "Subscribe",
+                        style: TextStyle(
+                          color: _isSubscribed
+                              ? Colors.grey.shade700
+                              : Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // --- STICK TO EXPERT ---
+            Center(
+              child: ElevatedButton(
+                onPressed: _handleStickToExpert,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black87,
+                  foregroundColor: Colors.white,
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                ),
+                child: const Text(
+                  "Stick to Expert",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -459,13 +706,13 @@ class ControllableSmartText extends StatelessWidget {
   final TextStyle? style;
   final Widget? extraContent;
   final bool isExpanded;
-  final VoidCallback onToggle;
+  final VoidCallback onExpand;
 
   const ControllableSmartText({
     super.key,
     required this.text,
     required this.isExpanded,
-    required this.onToggle,
+    required this.onExpand,
     this.wordLimit = 25,
     this.style,
     this.extraContent,
@@ -476,21 +723,28 @@ class ControllableSmartText extends StatelessWidget {
     final words = text.split(' ');
     final isLong = words.length > wordLimit;
 
-    final String displayedText = (!isExpanded && isLong)
-        ? "${words.take(wordLimit).join(' ')}..."
-        : text;
+    if (isExpanded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(text, style: style),
+          if (extraContent != null) extraContent!,
+        ],
+      );
+    }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(displayedText, style: style),
-        if (isLong)
+    if (isLong) {
+      final truncatedText = "${words.take(wordLimit).join(' ')}...";
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(truncatedText, style: style),
           GestureDetector(
-            onTap: onToggle,
+            onTap: onExpand,
             child: Padding(
               padding: const EdgeInsets.only(top: 4.0, bottom: 4.0),
               child: Text(
-                isExpanded ? "Show Less" : "More",
+                "More",
                 style: TextStyle(
                   color: Colors.blue.shade700,
                   fontWeight: FontWeight.bold,
@@ -499,8 +753,10 @@ class ControllableSmartText extends StatelessWidget {
               ),
             ),
           ),
-        if (isExpanded && extraContent != null) extraContent!,
-      ],
-    );
+        ],
+      );
+    }
+
+    return Text(text, style: style);
   }
 }

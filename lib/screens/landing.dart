@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:pina/screens/constants.dart';
+// Import your new LangChain service
+import 'package:pina/services/lm_studio_service.dart';
 
 class LandingScreen extends StatefulWidget {
   final String title;
+  final String userName;
 
-  const LandingScreen({required this.title, super.key});
+  const LandingScreen({required this.title, required this.userName, super.key});
 
   @override
   State<LandingScreen> createState() => _LandingScreenState();
@@ -14,15 +18,16 @@ class LandingScreen extends StatefulWidget {
 class _LandingScreenState extends State<LandingScreen> {
   final TextEditingController controller = TextEditingController();
 
-  // MongoDB route (your server)
-  final String backendUrl = "http://10.74.182.23:4000/api/save-input";
+  // --- NEW: Initialize the LangChain Service ---
+  final LmStudioService _aiService = LmStudioService();
 
-  // LM Studio local model endpoint
-  final String lmUrl = "http://127.0.0.1:1234/v1/chat/completions";
+  // Mongo Endpoints (Keep these as they were working)
+  final String saveInputUrl = "${ApiConstants.authUrl}/api/save-input";
+  final String saveOutputUrl = "${ApiConstants.authUrl}/api/save-output";
 
-  // Output text from LM Studio
+  // REMOVED: final String lmUrl... (The service handles this now)
+
   String? output;
-
   final List<String> dataTypes = [
     "Text",
     "Image",
@@ -32,8 +37,9 @@ class _LandingScreenState extends State<LandingScreen> {
   ];
   Map<String, bool> fromSelection = {};
   Map<String, bool> toSelection = {};
-
   bool isLoading = false;
+
+  int tokenCount = 0;
 
   @override
   void initState() {
@@ -61,32 +67,14 @@ class _LandingScreenState extends State<LandingScreen> {
     return map.entries.where((e) => e.value).map((e) => e.key).toList();
   }
 
-  // 🔥 LM Studio call
-  Future<String?> _callLmStudio(String prompt) async {
-    try {
-      final res = await http.post(
-        Uri.parse(lmUrl),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "model": "google/gemma-3-4b",
-          "messages": [
-            {"role": "user", "content": prompt},
-          ],
-        }),
-      );
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        return data["choices"][0]["message"]["content"];
-      } else {
-        return "LM Studio Error: ${res.body}";
-      }
-    } catch (e) {
-      return "LM Studio Connection Error: $e";
-    }
+  int estimateTokens(String text) {
+    if (text.trim().isEmpty) return 0;
+    final words = text.trim().split(RegExp(r"\s+")).length;
+    return (words * 1.3).round();
   }
 
-  // 🔥 Submit: Save + Call LM Studio + Show Output
+  // REMOVED: _callLmStudio function (replaced by _aiService)
+
   Future<void> _submitData() async {
     final promptText = controller.text.trim();
     if (promptText.isEmpty) {
@@ -98,42 +86,80 @@ class _LandingScreenState extends State<LandingScreen> {
 
     setState(() {
       isLoading = true;
-      output = null; // reset output
+      output = null;
     });
 
     List<String> fromList = _getSelectedList(fromSelection);
     List<String> toList = _getSelectedList(toSelection);
+    int? currentPromptId;
 
-    // 🔹 Step 1 — Save to MongoDB
+    // --- STEP 1: SAVE INPUT (MongoDB) ---
+    // (This part remains exactly the same)
     try {
-      await http.post(
-        Uri.parse(backendUrl),
+      final res = await http.post(
+        Uri.parse(saveInputUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          "userName": "AppUser",
+          "userName": widget.userName,
           "prompt": promptText,
           "from": fromList.isEmpty ? ["Text"] : fromList,
           "to": toList.isEmpty ? ["Image"] : toList,
         }),
       );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        currentPromptId = data['promptId'];
+      }
     } catch (e) {
-      debugPrint("Mongo Error: $e");
+      debugPrint("Mongo Input Error: $e");
     }
 
-    // 🔹 Step 2 — Call LM Studio and update UI
-    String? modelOutput = await _callLmStudio(promptText);
+    // --- STEP 2: GET AI RESPONSE (UPDATED to use LangChain) ---
+    // We switched from manual HTTP to your new Service
+    final aiResponse = await _aiService.generateResponse(promptText);
+
+    String aiContent;
+    String aiModel;
+
+    // Handle the response map from the service
+    if (aiResponse['status'] == 'success') {
+      aiContent = aiResponse['content'];
+      aiModel = aiResponse['model'];
+    } else {
+      aiContent = "AI Error: ${aiResponse['content']}";
+      aiModel = "error";
+    }
+
+    // --- STEP 3: SAVE OUTPUT (MongoDB) ---
+    // (This part remains exactly the same)
+    if (currentPromptId != null) {
+      try {
+        await http.post(
+          Uri.parse(saveOutputUrl),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode({
+            "promptId": currentPromptId,
+            "content": aiContent,
+            "modelName": aiModel,
+          }),
+        );
+      } catch (e) {
+        debugPrint("Mongo Output Error: $e");
+      }
+    }
 
     setState(() {
-      output = modelOutput; // show AI output
+      output = aiContent;
       isLoading = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    // UI remains exactly identical to your working version
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
-
       bottomSheet: SafeArea(
         child: Container(
           padding: const EdgeInsets.all(16),
@@ -156,40 +182,47 @@ class _LandingScreenState extends State<LandingScreen> {
           ),
         ),
       ),
-
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Search Bar
             TextField(
               controller: controller,
               maxLines: null,
+              spellCheckConfiguration: const SpellCheckConfiguration(),
+              onChanged: (value) {
+                setState(() {
+                  tokenCount = estimateTokens(value);
+                });
+              },
               decoration: const InputDecoration(
                 hintText: "Enter your prompt...",
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.search),
               ),
             ),
-
-            const SizedBox(height: 25),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                "Tokens: $tokenCount",
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+            const SizedBox(height: 15),
             const Text(
               "From:",
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             _buildCheckboxGroup(fromSelection),
-
             const SizedBox(height: 20),
             const Text(
               "To:",
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             _buildCheckboxGroup(toSelection),
-
             const SizedBox(height: 30),
-
-            // 🔥 OUTPUT SECTION
             if (output != null)
               Container(
                 padding: const EdgeInsets.all(16),

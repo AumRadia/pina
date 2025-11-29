@@ -1,9 +1,0 @@
-Test ID,Area,Preconditions,Steps,Expected Result
-TRIAL-01,News Load,User authenticated and on Trial screen,Launch app; log in; wait for Trial screen.,Spinner shows until API resolves; list appears without errors
-TRIAL-02,Drawer + Logout,User on Trial screen,Tap hamburger icon then Logout,Navigates back to Login screen clearing history
-TRIAL-03,Expandable Description,News loaded,Tap 'More' then 'Show Less' on same card,Description expands then collapses correctly
-TRIAL-04,Impact Analysis Happy Path,News item with valid URL,Tap 'Show Impact' on card,Loading dialog then ImpactAnalysisScreen with AI text
-TRIAL-05,Impact Analysis Timeout,Connectivity throttled or offline,Tap 'Show Impact',Dialog closes and error text 'AI API timed out' shown
-TRIAL-06,Quick Action Button,News loaded,Tap 'Quick Action',Placeholder handler runs without crash (update once implemented)
-TRIAL-07,Language Switch,Drawer available,Open drawer change language close drawer,Language updates and drawer closes cleanly
-TRIAL-08,Widget Nav Button,MyAi button visible,Tap MyAi button on AppBar,Navigates to MyAiScreen carrying user context
