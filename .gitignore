@@ -46,3 +46,7 @@ app.*.map.json
 
 # DO NOT UPLOAD GROQ KEY
 lib/screens/secrets.dart
+lib/screens/ai_checking_screen.dart
+lib/screens/plagarism_check.dart
+lib/screens/reverse_search_screen.dart
+lib/screens/explicit_content_check_screen.dart
