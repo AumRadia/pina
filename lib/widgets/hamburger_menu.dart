@@ -2,6 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:pina/data/translation.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+// Import the new AI Checking Screen
+// Ensure you have created the file 'ai_checking_screen.dart' in your lib/screens folder
+import 'package:pina/screens/ai_checking_screen.dart';
+import 'package:pina/screens/explicit_content_check_screen.dart';
+import 'package:pina/screens/gdpr_scanner_screen.dart';
+import 'package:pina/screens/plagarism_check.dart';
+import 'package:pina/screens/reverse_search_screen.dart';
 
 const String baseUrl = "http://10.11.161.23:4000";
 
@@ -24,7 +31,7 @@ class HamburgerMenu extends StatelessWidget {
     return AppLocale.translations[id]?[selectedLanguage] ?? id;
   }
 
-  // --- NEW FUNCTION: Shows the Contact Dialog and sends message ---
+  // --- FUNCTION: Shows the Contact Dialog and sends message ---
   void _showContactDialog(BuildContext context) {
     final TextEditingController messageController = TextEditingController();
 
@@ -126,6 +133,14 @@ class HamburgerMenu extends StatelessWidget {
     );
   }
 
+  // Helper to show a "Coming Soon" message for new tools
+  void _showComingSoon(BuildContext context, String featureName) {
+    Navigator.pop(context); // Close drawer
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text("$featureName is coming soon!")));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Drawer(
@@ -181,7 +196,7 @@ class HamburgerMenu extends StatelessWidget {
                   ),
           ),
 
-          // --- OPTIONAL: LANGUAGE & CONTACT ---
+          // --- MENU ITEMS ---
           if (onLanguageChanged != null) ...[
             // 1. LANGUAGE
             ExpansionTile(
@@ -213,7 +228,90 @@ class HamburgerMenu extends StatelessWidget {
 
             const Divider(),
 
-            // 2. CONTACT US (UPDATED)
+            // 2. TOOLS SECTION (New)
+            ExpansionTile(
+              leading: const Icon(Icons.handyman_outlined, color: Colors.teal),
+              title: const Text(
+                "Tools",
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              childrenPadding: const EdgeInsets.only(left: 20),
+              children: [
+                // A. AI Deepfake Checking (Moved here)
+                ListTile(
+                  leading: const Icon(
+                    Icons.privacy_tip_outlined,
+                    color: Colors.deepPurple,
+                  ),
+                  title: const Text("AI Checking (Deepfake)"),
+                  onTap: () {
+                    Navigator.pop(context); // Close drawer
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AiCheckingScreen(userId: 1),
+                      ),
+                    );
+                  },
+                ),
+
+                // B. IP Violation / Infringement Check
+                ListTile(
+                  leading: const Icon(Icons.copyright, color: Colors.orange),
+                  title: const Text("IP Infringement Check"),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ReverseSearchScreen(),
+                    ),
+                  ),
+                ),
+
+                // C. Explicit Content Check
+                ListTile(
+                  leading: const Icon(Icons.explicit, color: Colors.redAccent),
+                  title: const Text("Explicit Content Check"),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ExplicitContentCheckScreen(),
+                      ),
+                    );
+                  },
+                ),
+
+                // D. Plagiarism Check
+                ListTile(
+                  leading: const Icon(Icons.copy_all, color: Colors.blueGrey),
+                  title: const Text("Plagiarism Check"),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CopyleaksScanScreen(),
+                      ),
+                    );
+                  },
+                ),
+
+                // E. GDPR Compliance Check
+                ListTile(
+                  leading: const Icon(Icons.security, color: Colors.green),
+                  title: const Text("GDPR Compliance Check"),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => GDPRScannerScreen(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const Divider(),
+
+            // 3. CONTACT US
             ListTile(
               leading: const Icon(
                 Icons.contact_support_outlined,
@@ -226,17 +324,16 @@ class HamburgerMenu extends StatelessWidget {
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              // --- UPDATE: Call the dialog function here ---
               onTap: () {
-                // Close the drawer first (optional, personal preference)
+                // Close the drawer first
                 Navigator.pop(context);
-                // Show the dialog
+                // Show the contact dialog
                 _showContactDialog(context);
               },
             ),
           ],
 
-          // --- OPTIONAL: LOGOUT BUTTON ---
+          // --- LOGOUT BUTTON ---
           if (onLogout != null) ...[
             if (onLanguageChanged != null) const Divider(),
 

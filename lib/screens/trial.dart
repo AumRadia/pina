@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pina/models/news_article.dart';
+import 'package:pina/screens/constants.dart';
 import 'package:pina/screens/impact.dart';
 import 'package:pina/screens/quickactions.dart';
 import 'package:pina/screens/my_ai_screen.dart';
@@ -45,15 +46,106 @@ class _TrialState extends State<Trial> {
   Future<void> fetchNewsData() async {
     try {
       final data = await Apiservice().fetchNews();
+
+      // Get only 10 articles
+      final limitedData = data.take(10).toList();
+
       if (mounted) {
         setState(() {
-          articles = data;
+          articles = limitedData;
           isLoading = false;
         });
       }
+
+      // Save Input + Output to MongoDB
+      _saveToDatabase(limitedData);
     } catch (e) {
       print("Error loading news: $e");
       if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _saveToDatabase(List<NewsArticle> articles) async {
+    // URL from constants.dart
+    final String url = "${ApiConstants.authUrl}/api/news/save-batch";
+
+    // 2. Prepare INPUT Data
+    // We explicitly define all fields from inputs.txt to ensure they exist in DB
+    Map<String, dynamic> inputs = {
+      "q": "latest news", // Example: Replace with actual query if available
+      "language": _currentLanguage,
+      "size": "10",
+      "country": "in", // Defaulting to India as per user context
+      // Empty fields (will be saved as "" in DB)
+      "id": "",
+      "qInTitle": "",
+      "qInMeta": "",
+      "timeframe": "",
+      "excludecountry": "",
+      "category": "",
+      "excludecategory": "",
+      "excludelanguage": "",
+      "sort": "",
+      "url": "",
+      "tag": "",
+      "sentiment": "",
+      "organization": "",
+      "region": "",
+      "domain": "",
+      "domainurl": "",
+      "excludedomain": "",
+      "excludefield": "",
+      "prioritydomain": "",
+      "timezone": "",
+      "full_content": "",
+      "image": "",
+      "video": "",
+      "removeduplicate": "",
+      "page": "",
+    };
+
+    // 3. Prepare OUTPUT Data (Articles)
+    List<Map<String, dynamic>> articlesJson = articles
+        .map(
+          (a) => {
+            "articleid": a.articleid,
+            "title": a.title,
+            "link": a.link,
+            "description": a.description,
+            "keywords": a.keywords,
+            "creator": a.creator,
+            "imageurl": a.imageurl,
+            "pubdate": a.pubdate,
+            "pubdatetz": a.pubdatetz,
+            "sourceid": a.sourceid,
+            "sourceurl": a.sourceurl,
+            "sourceicon": a.sourceicon,
+            "sourcepriority": a.sourcepriority,
+            "country": a.country,
+            "category": a.category,
+            "language": a.language,
+            "duplicate": a.duplicate,
+          },
+        )
+        .toList();
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "inputs": inputs, // <--- Sending Input Data
+          "articles": articlesJson, // <--- Sending Output Data
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        print("Success: 1 Input and ${articlesJson.length} Outputs saved.");
+      } else {
+        print("Failed to save: ${response.body}");
+      }
+    } catch (e) {
+      print("Error saving to DB: $e");
     }
   }
 

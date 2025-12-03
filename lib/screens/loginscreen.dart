@@ -3,11 +3,12 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:pina/screens/constants.dart';
-import 'package:pina/screens/main_menu_screen.dart';
 import 'package:pina/screens/registration.dart';
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:pina/screens/trial.dart'; // Import the constants file
+// CHANGED: Import MainMenuScreen instead of Trial
+import 'package:pina/screens/main_menu_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,13 +18,11 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // Controllers keep the latest auth input in memory.
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
-  bool loading = false; // Toggles button state and spinner visibility.
+  bool loading = false;
 
-  // 1. Setup Google Sign In
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email'],
     clientId:
@@ -31,6 +30,13 @@ class _LoginScreenState extends State<LoginScreen> {
     serverClientId:
         "684725372087-9018mjvp79oq4u1u74u249lm7lt2t8cd.apps.googleusercontent.com",
   );
+
+  Future<void> _saveUserSession(int userId, String name, String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('userId', userId);
+    await prefs.setString('userName', name);
+    await prefs.setString('userEmail', email);
+  }
 
   // Standard Email/Password Login
   Future<void> loginUser() async {
@@ -45,7 +51,6 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => loading = true);
 
     try {
-      // UPDATED: Now uses ApiConstants
       final url = Uri.parse("${ApiConstants.authUrl}/api/auth/login");
 
       final res = await http
@@ -54,35 +59,34 @@ class _LoginScreenState extends State<LoginScreen> {
             headers: {"Content-Type": "application/json"},
             body: jsonEncode({"email": email, "password": password}),
           )
-          .timeout(
-            const Duration(seconds: 12),
-            onTimeout: () {
-              throw TimeoutException("Login timed out. Please retry.");
-            },
-          );
+          .timeout(const Duration(seconds: 12));
 
       final data = jsonDecode(res.body);
 
       if (res.statusCode == 200 && data["success"] == true) {
         showMessage("Login successful");
-        print("TOKEN: ${data['token']}");
 
-        // --- FETCH USER DETAILS FROM DB RESPONSE ---
         String userName = "User";
-        String userEmail = email; // Default to the typed email
+        String userEmail = email;
+        int? userId;
 
         if (data['user'] != null) {
           userName = data['user']['name'] ?? userName;
           userEmail = data['user']['email'] ?? userEmail;
+          userId = data['user']['userId'];
         }
 
-        // Navigate to MainMenu with the NAME and EMAIL
+        if (userId != null) {
+          await _saveUserSession(userId, userName, userEmail);
+        }
+
         if (mounted) {
+          // CHANGED: Navigate to MainMenuScreen
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (context) =>
-                  Trial(userName: userName, userEmail: userEmail),
+                  MainMenuScreen(userName: userName, userEmail: userEmail),
             ),
           );
         }
@@ -97,9 +101,10 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => loading = false);
   }
 
-  // 2. Google Sign-In Logic
+  // Google Sign-In Logic
   Future<void> signInWithGoogle() async {
     setState(() => loading = true);
+
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
 
@@ -119,9 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // UPDATED: Now uses ApiConstants
-      const baseUrl = ApiConstants.authUrl;
-      final url = Uri.parse("$baseUrl/api/auth/google-auth");
+      final url = Uri.parse("${ApiConstants.authUrl}/api/auth/google-auth");
 
       final response = await http
           .post(
@@ -129,42 +132,40 @@ class _LoginScreenState extends State<LoginScreen> {
             headers: {"Content-Type": "application/json"},
             body: jsonEncode({"idToken": idToken}),
           )
-          .timeout(
-            const Duration(seconds: 12),
-            onTimeout: () {
-              throw TimeoutException("Google sign-in timed out. Please retry.");
-            },
-          );
+          .timeout(const Duration(seconds: 12));
 
       final data = jsonDecode(response.body);
 
-      // Handle Success
       if (mounted) {
         if (response.statusCode >= 200 &&
             response.statusCode < 300 &&
             data["success"] == true) {
           showMessage("Google Login successful!");
 
-          // --- FETCH USER DETAILS FROM DB RESPONSE ---
           String userName = "User";
           String userEmail = "";
+          int? userId;
 
           if (data['user'] != null) {
             userName = data['user']['name'] ?? userName;
             userEmail = data['user']['email'] ?? "";
+            userId = data['user']['userId'];
           }
 
-          // Fallback: If DB didn't send email, get it from Google object
           if (userEmail.isEmpty) {
             userEmail = googleUser.email;
           }
 
-          // Navigate to MainMenu (NOT Trial)
+          if (userId != null) {
+            await _saveUserSession(userId, userName, userEmail);
+          }
+
+          // CHANGED: Navigate to MainMenuScreen
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (context) =>
-                  Trial(userName: userName, userEmail: userEmail),
+                  MainMenuScreen(userName: userName, userEmail: userEmail),
             ),
           );
         } else if (response.statusCode == 409) {
@@ -176,9 +177,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
       await _googleSignIn.signOut();
     } catch (error) {
-      print("GOOGLE_ERROR--->$error");
       showMessage("An error occurred during Google Sign-In.");
     }
+
     setState(() => loading = false);
   }
 
@@ -186,7 +187,6 @@ class _LoginScreenState extends State<LoginScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // Reusable branded circle avatar for OAuth buttons.
   Widget socialIcon(String assetPath) {
     return CircleAvatar(
       radius: 22,
@@ -213,9 +213,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   "Login",
                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                 ),
-
                 const SizedBox(height: 30),
-
                 TextField(
                   controller: emailController,
                   decoration: const InputDecoration(
@@ -223,9 +221,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     border: OutlineInputBorder(),
                   ),
                 ),
-
                 const SizedBox(height: 20),
-
                 TextField(
                   controller: passwordController,
                   obscureText: true,
@@ -234,9 +230,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     border: OutlineInputBorder(),
                   ),
                 ),
-
                 const SizedBox(height: 30),
-
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -248,7 +242,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
-
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -262,9 +255,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: const Text("Sign Up"),
                   ),
                 ),
-
                 const SizedBox(height: 30),
-
                 Row(
                   children: const [
                     Expanded(child: Divider()),
@@ -275,9 +266,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     Expanded(child: Divider()),
                   ],
                 ),
-
                 const SizedBox(height: 20),
-
                 GestureDetector(
                   onTap: loading ? null : signInWithGoogle,
                   child: socialIcon("assets/icons/google.png"),

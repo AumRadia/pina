@@ -1,23 +1,35 @@
 import 'package:flutter/material.dart';
-import 'package:pina/screens/loginscreen.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
+// Import MainMenuScreen
 import 'package:pina/screens/main_menu_screen.dart';
 
-void main() async {
-  // Ensure Flutter services (such as Google Sign-In) are ready before runApp.
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  runApp(const Mainapp());
+  // 1. Check for valid session
+  final prefs = await SharedPreferences.getInstance();
+
+  final int? userId = prefs.getInt('userId');
+  final String? userName = prefs.getString('userName');
+  final String? userEmail = prefs.getString('userEmail');
+
+  // 2. ALWAYS start at MainMenuScreen
+  // We pass the user details if they exist, otherwise null (indicating guest/logged out)
+  Widget startScreen = MainMenuScreen(
+    userName: userName, // Can be null
+    userEmail: userEmail, // Can be null
+  );
+
+  runApp(Mainapp(startScreen: startScreen));
 }
 
 class Mainapp extends StatelessWidget {
-  const Mainapp({super.key});
+  final Widget startScreen;
+
+  const Mainapp({super.key, required this.startScreen});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: LoginScreen(), // Entry point of the flow.
-    );
+    return MaterialApp(debugShowCheckedModeBanner: false, home: startScreen);
   }
 }

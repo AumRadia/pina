@@ -1,0 +1,48 @@
+Test ID,Screen,Area,Preconditions,Steps,Expected Result
+AI-01,AI Checking,Media Selection,Screen opens with userId,Tap 'Pick Image' button,Image picker opens; selected image displays in preview
+AI-02,AI Checking,Media Selection,Screen opens,Tap 'Pick Video' button,Video picker opens; video icon displays in preview
+AI-03,AI Checking,Validation,No media selected,Tap 'Check with AI' button,Button disabled; no action triggered
+AI-04,AI Checking,Upload Process,Image selected,Tap 'Check with AI',Loading spinner shows; status updates to 'Saving to database...'
+AI-05,AI Checking,Deepfake Detection,Image uploaded successfully,Mock SightEngine API success with score 0.85,Result shows 'High Probability of Deepfake' with red text and score 85.0%
+AI-06,AI Checking,Deepfake Detection,Image uploaded successfully,Mock API with score 0.60,Result shows 'Possible Deepfake / Suspicious' with score 60.0%
+AI-07,AI Checking,Deepfake Detection,Image uploaded successfully,Mock API with score 0.30,Result shows 'Likely Real Media' with green text and score 30.0%
+AI-08,AI Checking,Error Handling,Backend upload fails,Mock backend to return 500 error,Error message 'Failed to upload to server.' displayed
+AI-09,AI Checking,Error Handling,SightEngine API fails,Mock API to return null or error,Error message 'AI Check Failed.' displayed
+AI-10,AI Checking,State Reset,Previous scan completed,Select new image,Previous results cleared; new image displays
+EXPL-01,Explicit Content,Image Selection,Screen opens,Tap 'Gallery' button,Image picker opens from gallery
+EXPL-02,Explicit Content,Image Selection,Screen opens,Tap 'Camera' button,Camera opens to capture new image
+EXPL-03,Explicit Content,Validation,No image selected,Tap 'Analyze Image' button,Button disabled; no action triggered
+EXPL-04,Explicit Content,Analysis Process,Image selected,Tap 'Analyze Image',Loading spinner shows; request sent to backend
+EXPL-05,Explicit Content,Results Display,Analysis successful,Mock backend returning safe score 0.9,Results show 'Safe Content' 90% with green indicator
+EXPL-06,Explicit Content,Results Display,Analysis successful,Mock backend returning partial 0.6,Results show 'Partial Nudity' 60% with orange indicator
+EXPL-07,Explicit Content,Results Display,Analysis successful,Mock backend returning raw 0.8,Results show 'Explicit / Raw' 80% with red indicator
+EXPL-08,Explicit Content,Error Handling,User not logged in,Mock SharedPreferences returning null userId,Error 'User not logged in' displayed
+EXPL-09,Explicit Content,Error Handling,Backend API fails,Mock backend to return 500 error,Error message displayed in red container
+EXPL-10,Explicit Content,State Reset,Previous analysis completed,Select new image,Previous results cleared; new image displays
+GDPR-01,GDPR Scanner,URL Input,Screen opens,Enter URL 'example.com' in text field,URL stored in controller
+GDPR-02,GDPR Scanner,URL Validation,Empty URL field,Tap 'Check Compliance' button,Button disabled if userId not loaded
+GDPR-03,GDPR Scanner,URL Formatting,Enter URL without protocol,Enter 'google.com' and tap Check,URL auto-formatted to 'https://google.com'
+GDPR-04,GDPR Scanner,Compliance Check,Valid URL entered,Tap 'Check Compliance',Loading spinner shows; API call initiated
+GDPR-05,GDPR Scanner,API Success,GDPR API returns 200,Mock API with score 85 SSL true privacy true cookie true,Results card shows score 85/100 with all checks passed
+GDPR-06,GDPR Scanner,API Success,GDPR API returns 200,Mock API with score 40 SSL false privacy false cookie false,Results card shows score 40/100 with all checks failed
+GDPR-07,GDPR Scanner,Local Fallback,GDPR API fails or times out,Mock API to throw exception,Local check performed; results from backup method displayed
+GDPR-08,GDPR Scanner,Local Check,Local scan performed,Website has HTTPS privacy policy and cookie banner,Score calculated: 40+30+30=100; all checks passed
+GDPR-09,GDPR Scanner,Error Handling,Invalid URL or unreachable,Mock all checks to fail,Error message 'Could not reach website. Please check the URL.' displayed
+GDPR-10,GDPR Scanner,User Session,User not logged in,SharedPreferences has no userId,Button disabled; helper text 'Loading User Session...' shown
+GDPR-11,GDPR Scanner,Backend Save,Compliance check successful,Mock backend save endpoint,Results saved to MongoDB with userId association
+PLAG-01,Plagiarism Check,File Selection,Screen opens,Tap 'Select Document' button,File picker opens for txt/pdf/docx files
+PLAG-02,Plagiarism Check,File Reading,TXT file selected,Select .txt file,File content extracted and displayed; filename shown
+PLAG-03,Plagiarism Check,File Reading,PDF file selected,Select .pdf file,PDF text extracted; filename shown; loading during extraction
+PLAG-04,Plagiarism Check,File Reading,DOCX file selected,Select .docx file,DOCX text extracted using docx_to_text; filename shown
+PLAG-05,Plagiarism Check,File Error,Image-only PDF selected,Select PDF with no text,Error message 'Error reading PDF: This might be an image-only PDF.' shown
+PLAG-06,Plagiarism Check,Validation,No file selected,Tap 'Scan for AI Content' button,Button disabled; no action triggered
+PLAG-07,Plagiarism Check,Scan Process,File content loaded,Tap 'Scan for AI Content',Loading spinner shows; status updates to 'Preparing scan...'
+PLAG-08,Plagiarism Check,Backend Save,Scan initiated,Mock input save endpoint,Input saved to MongoDB; plagId returned
+PLAG-09,Plagiarism Check,Copyleaks Auth,Input saved successfully,Mock Copyleaks login API,Access token retrieved successfully
+PLAG-10,Plagiarism Check,AI Detection,Scan successful,Mock Copyleaks API returning AI prob 0.75,Results show 'AI Probability' 75% and 'Human Probability' 25%
+PLAG-11,Plagiarism Check,AI Detection,Scan successful,Mock API returning AI prob 0.20,Results show 'AI Probability' 20% and 'Human Probability' 80%
+PLAG-12,Plagiarism Check,Error Handling,Backend save fails,Mock input save to return 0,Error 'Failed to save input to database. Aborting scan.' displayed
+PLAG-13,Plagiarism Check,Error Handling,Copyleaks auth fails,Mock auth API to return 401,Error 'Authentication Failed. Check API Key/Email.' displayed
+PLAG-14,Plagiarism Check,Error Handling,Scan API fails,Mock scan API to return 500,Error message with status code and body displayed
+PLAG-15,Plagiarism Check,Backend Save,Scan results received,Mock output save endpoint,Results saved to MongoDB with plagId association
+PLAG-16,Plagiarism Check,State Reset,Previous scan completed,Select new file,Previous results cleared; new filename displayed

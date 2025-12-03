@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:pina/screens/landing.dart';
+import 'package:pina/screens/loginscreen.dart';
 
 class MainMenuScreen extends StatelessWidget {
-  final String userName; // <--- 1. Add Variable
+  // Make these nullable to support "Guest" state on initial launch
+  final String? userName;
+  final String? userEmail;
 
-  // 2. Add Constructor
-  MainMenuScreen({required this.userName, super.key, required String userEmail});
+  MainMenuScreen({this.userName, super.key, this.userEmail});
 
   final Map<String, List<String>> menu = {
     "Text": [
@@ -45,10 +47,37 @@ class MainMenuScreen extends StatelessWidget {
     ],
   };
 
+  void _handleOptionClick(BuildContext context, String optionTitle) {
+    // CHECK 1: Is user logged in?
+    if (userName == null || userEmail == null) {
+      // Not logged in -> Go to Login Screen
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    } else {
+      // Logged in -> Go to Landing Screen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => LandingScreen(
+            title: optionTitle,
+            userName: userName!,
+            userEmail: userEmail!,
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Main Menu"), centerTitle: true),
+      appBar: AppBar(
+        // Show "Hi, Name" if logged in, else just "Main Menu"
+        title: Text(userName != null ? "Hi, $userName" : "Main Menu"),
+        centerTitle: true,
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: menu.entries.map((entry) {
@@ -61,16 +90,7 @@ class MainMenuScreen extends StatelessWidget {
               return ListTile(
                 title: Text(sub),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 18),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      // 3. Pass Name to Landing
-                      builder: (_) =>
-                          LandingScreen(title: sub, userName: userName),
-                    ),
-                  );
-                },
+                onTap: () => _handleOptionClick(context, sub),
               );
             }).toList(),
           );
