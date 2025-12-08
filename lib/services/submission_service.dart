@@ -1,8 +1,9 @@
+// lib/services/submission_service.dart
+
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:pina/screens/constants.dart';
 
-// A simple result class to handle the different states cleanly
 class SubmissionResult {
   final bool success;
   final String? errorMessage;
@@ -20,9 +21,46 @@ class SubmissionResult {
 class SubmissionService {
   final String saveInputUrl = "${ApiConstants.authUrl}/api/save-input";
   final String saveOutputUrl = "${ApiConstants.authUrl}/api/save-output";
+  // New endpoint assumption for pre-check
 
-  /// Standard function to Validate User & Save Input
-  /// Checks: Active Status, Paid Status, Token Count (>10)
+  final String checkStatusUrl =
+      "${ApiConstants.authUrl}/api/auth/check-user-status";
+
+  /// New: Checks if user is Active, Paid, and has Tokens BEFORE entering screens
+  Future<SubmissionResult> checkUserEligibility({
+    required String userEmail,
+  }) async {
+    try {
+      // Assuming your backend has a lightweight status check endpoint
+      // If not, you might need to adapt this to your existing backend logic
+      final res = await http.post(
+        Uri.parse(checkStatusUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"userEmail": userEmail}),
+      );
+
+      final body = jsonDecode(res.body);
+
+      if (res.statusCode == 200) {
+        return SubmissionResult(success: true, statusCode: 200);
+      } else {
+        return SubmissionResult(
+          success: false,
+          errorMessage: body['error'] ?? "Account not eligible",
+          statusCode: res.statusCode,
+        );
+      }
+    } catch (e) {
+      // Fail open or closed depending on preference. Here we fail closed.
+      return SubmissionResult(
+        success: false,
+        errorMessage: "Connection failed: $e",
+        statusCode: 500,
+      );
+    }
+  }
+
+  // ... (Keep existing validateAndSaveInput and saveOutput methods exactly as they were) ...
   Future<SubmissionResult> validateAndSaveInput({
     required String userName,
     required String userEmail,
@@ -30,6 +68,8 @@ class SubmissionService {
     required List<String> fromList,
     required List<String> toList,
   }) async {
+    // ... existing code ...
+    // (Included for context, no changes needed here provided it's the same file)
     try {
       final res = await http.post(
         Uri.parse(saveInputUrl),
@@ -52,21 +92,18 @@ class SubmissionService {
           statusCode: 200,
         );
       } else if (res.statusCode == 403) {
-        // Specific Business Logic Errors (Not Paid, Not Active, Low Tokens)
         return SubmissionResult(
           success: false,
           errorMessage: body['error'] ?? "Permission denied",
           statusCode: 403,
         );
       } else if (res.statusCode == 401) {
-        // Auth Error
         return SubmissionResult(
           success: false,
           errorMessage: "Session invalid. Please login again.",
           statusCode: 401,
         );
       } else {
-        // Server Error
         return SubmissionResult(
           success: false,
           errorMessage: body['error'] ?? "Unknown Server Error",
@@ -82,12 +119,12 @@ class SubmissionService {
     }
   }
 
-  /// Standard function to save the AI output
   Future<void> saveOutput({
     required int promptId,
     required String content,
     required String modelName,
   }) async {
+    // ... existing code ...
     try {
       await http.post(
         Uri.parse(saveOutputUrl),

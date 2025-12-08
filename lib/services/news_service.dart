@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import "package:http/http.dart" as http;
 import 'package:pina/models/news_article.dart';
+import 'package:pina/screens/constants.dart';
 
 // Lightweight wrapper around NewsData.io public API.
 class Apiservice {
   final String baseurl =
-      "https://newsdata.io/api/1/latest?apikey=pub_39e7e980b4c34a088c1ee4600cb5e910"
+      "https://newsdata.io/api/1/latest?"
+      "apikey=${ApiConstants.newsDataKey}"
       "&language=en"
       "&category=top";
 

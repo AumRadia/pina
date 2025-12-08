@@ -1,15 +1,26 @@
+// lib/screens/main_menu_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:pina/screens/landing.dart';
 import 'package:pina/screens/loginscreen.dart';
+import 'package:pina/services/submission_service.dart'; // Import Service
 
-class MainMenuScreen extends StatelessWidget {
-  // Make these nullable to support "Guest" state on initial launch
+class MainMenuScreen extends StatefulWidget {
   final String? userName;
   final String? userEmail;
 
-  MainMenuScreen({this.userName, super.key, this.userEmail});
+  const MainMenuScreen({this.userName, super.key, this.userEmail});
+
+  @override
+  State<MainMenuScreen> createState() => _MainMenuScreenState();
+}
+
+class _MainMenuScreenState extends State<MainMenuScreen> {
+  final SubmissionService _submissionService = SubmissionService();
+  bool _isLoading = false;
 
   final Map<String, List<String>> menu = {
+    // ... (Keep your existing menu map) ...
     "Text": [
       "Text to Text",
       "Text to Image",
@@ -47,24 +58,54 @@ class MainMenuScreen extends StatelessWidget {
     ],
   };
 
-  void _handleOptionClick(BuildContext context, String optionTitle) {
-    // CHECK 1: Is user logged in?
-    if (userName == null || userEmail == null) {
-      // Not logged in -> Go to Login Screen
+  Future<void> _handleOptionClick(
+    BuildContext context,
+    String optionTitle,
+  ) async {
+    // CHECK 1: Local Null Check
+    if (widget.userName == null || widget.userEmail == null) {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
       );
-    } else {
-      // Logged in -> Go to Landing Screen
+      return;
+    }
+
+    // CHECK 2: Server-side Eligibility Check (Active, Paid, Tokens)
+    setState(() => _isLoading = true);
+
+    final result = await _submissionService.checkUserEligibility(
+      userEmail: widget.userEmail!,
+    );
+
+    setState(() => _isLoading = false);
+
+    if (result.success) {
+      if (!mounted) return;
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => LandingScreen(
             title: optionTitle,
-            userName: userName!,
-            userEmail: userEmail!,
+            userName: widget.userName!,
+            userEmail: widget.userEmail!,
           ),
+        ),
+      );
+    } else {
+      if (!mounted) return;
+
+      if (result.statusCode == 401) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.errorMessage ?? "Access Denied"),
+          backgroundColor: Colors.red,
         ),
       );
     }
@@ -74,27 +115,40 @@ class MainMenuScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // Show "Hi, Name" if logged in, else just "Main Menu"
-        title: Text(userName != null ? "Hi, $userName" : "Main Menu"),
+        title: Text(
+          widget.userName != null ? "Hi, ${widget.userName}" : "Main Menu",
+        ),
         centerTitle: true,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: menu.entries.map((entry) {
-          return ExpansionTile(
-            title: Text(
-              entry.key,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            children: entry.value.map((sub) {
-              return ListTile(
-                title: Text(sub),
-                trailing: const Icon(Icons.arrow_forward_ios, size: 18),
-                onTap: () => _handleOptionClick(context, sub),
+      body: Stack(
+        children: [
+          ListView(
+            padding: const EdgeInsets.all(16),
+            children: menu.entries.map((entry) {
+              return ExpansionTile(
+                title: Text(
+                  entry.key,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                children: entry.value.map((sub) {
+                  return ListTile(
+                    title: Text(sub),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 18),
+                    onTap: () => _handleOptionClick(context, sub),
+                  );
+                }).toList(),
               );
             }).toList(),
-          );
-        }).toList(),
+          ),
+          if (_isLoading)
+            Container(
+              color: Colors.black45,
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
       ),
     );
   }
