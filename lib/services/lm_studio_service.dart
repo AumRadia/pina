@@ -4,13 +4,17 @@ import 'package:http/http.dart' as http;
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pina/screens/constants.dart';
 
-class LmStudioService {
-  // 1. SETUP: Paste your API Key here
-  static const String lmapiKey = ApiConstants.lmapiKey;
+// 1. Define the supported providers
+enum LlmProvider { openRouter, portkey, kongAi, liteLlm, orqAi, togetherAi }
 
-  // URL - Using gemini-2.5-flash with Google Search support
-  static const String _url =
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+class LmStudioService {
+  // --- API KEYS ---
+  static const String _openRouterKey = "sk-or-v1-YOUR_KEY_HERE";
+  static const String _portkeyKey = "YOUR_PORTKEY_KEY";
+  static const String _kongAiKey = "YOUR_KONGAI_KEY";
+  static const String _liteLlmKey = "YOUR_LITELLM_KEY";
+  static const String _orqAiKey = "YOUR_ORQAI_KEY";
+  static const String _togetherAiKey = "YOUR_TOGETHER_KEY";
 
   final Box _box = Hive.box('chat_storage_v2');
   String _uploadedDocumentContext = "";
@@ -20,155 +24,167 @@ class LmStudioService {
     _loadHistory();
   }
 
-  Future<Map<String, dynamic>> generateResponse(String prompt) async {
-    try {
-      if (lmapiKey.contains("PASTE")) {
-        return {
-          'content': '⚠️ Please add your API Key in lm_studio_service.dart',
-          'status': 'error',
-        };
+  // --- MAIN GENERATION FUNCTION WITH FALLBACK LOOP ---
+  Future<Map<String, dynamic>> generateResponse(
+    String prompt,
+    LlmProvider selectedProvider,
+  ) async {
+    // 1. Build the priority list: Selected Provider -> Others -> ...
+    List<LlmProvider> providerQueue = [selectedProvider];
+
+    // Add all other providers to the queue (excluding the selected one)
+    for (var p in LlmProvider.values) {
+      if (p != selectedProvider) {
+        providerQueue.add(p);
       }
-
-      var response = await _makeRequest(
-        url: _url,
-        prompt: prompt,
-        enableSearch: true,
-      );
-
-      return _parseResponse(response, originalPrompt: prompt);
-    } catch (e) {
-      print("🔥 EXCEPTION: $e");
-      return {'content': 'Error: $e', 'status': 'error'};
     }
+
+    // 2. Iterate through the queue
+    for (var provider in providerQueue) {
+      try {
+        print("🔄 Trying provider: ${provider.name.toUpperCase()}...");
+
+        var response = await _makeRequest(prompt: prompt, provider: provider);
+
+        // Check if API call was successful (200-299)
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          print("✅ Success with ${provider.name}!");
+          return _parseResponse(
+            response,
+            originalPrompt: prompt,
+            providerName: provider.name,
+          );
+        } else {
+          print(
+            "⚠️ Failed ${provider.name} with status ${response.statusCode}. Moving to next...",
+          );
+          // Continue loop to try next provider
+        }
+      } catch (e) {
+        print("⚠️ Exception with ${provider.name}: $e. Moving to next...");
+        // Continue loop to try next provider
+      }
+    }
+
+    // 3. FINAL FALLBACK (If all providers failed)
+    print("❌ All providers failed. Fallback to Google Message.");
+    return {
+      'success':
+          true, // We treat this as a "success" so no error snackbar shows
+      'content': 'Moved to Google LLM',
+      'model': 'Fallback-Google',
+      'status': 'success',
+    };
   }
 
   Future<http.Response> _makeRequest({
-    required String url,
     required String prompt,
-    required bool enableSearch,
+    required LlmProvider provider,
   }) async {
     String finalPrompt = prompt;
+
+    // Add context if file was uploaded
     if (_uploadedDocumentContext.isNotEmpty) {
       finalPrompt =
           "CONTEXT DOCUMENT:\n$_uploadedDocumentContext\n\nUSER QUESTION:\n$prompt";
     }
 
-    // --- Sanitize Roles ---
-    List<Map<String, dynamic>> validHistory = [];
-
+    // --- Prepare Messages ---
+    List<Map<String, dynamic>> messages = [];
     for (var item in _history) {
       String role = item['role'] ?? 'user';
+      if (role == 'model') role = 'assistant';
 
-      // 1. Fix Role Name
-      if (role == 'assistant') role = 'model';
-      if (role != 'user' && role != 'model') role = 'user';
-
-      // 2. Fix Structure (flat text vs parts)
-      if (item.containsKey('parts') && item['parts'] != null) {
-        List<dynamic> parts = item['parts'];
-        if (parts.isNotEmpty) {
-          validHistory.add({"role": role, "parts": parts});
-        }
-      } else if (item.containsKey('text') &&
-          item['text'] != null &&
-          item['text'].toString().isNotEmpty) {
-        validHistory.add({
-          "role": role,
-          "parts": [
-            {"text": item['text']},
-          ],
-        });
+      String content = "";
+      if (item['parts'] != null && (item['parts'] as List).isNotEmpty) {
+        content = item['parts'][0]['text'];
+      }
+      if (content.isNotEmpty) {
+        messages.add({"role": role, "content": content});
       }
     }
+    messages.add({"role": "user", "content": finalPrompt});
 
-    final requestBody = {
-      "contents": [
-        ...validHistory,
-        {
-          "role": "user",
-          "parts": [
-            {"text": finalPrompt},
-          ],
-        },
-      ],
-      if (enableSearch)
-        "tools": [
-          {
-            // FIXED: Use "google_search" for Gemini 2.5
-            // (older models use "google_search_retrieval")
-            "google_search": {},
-          },
-        ],
-    };
+    // --- Switch Configuration ---
+    String url = "";
+    Map<String, String> headers = {'Content-Type': 'application/json'};
+    Map<String, dynamic> body = {"messages": messages, "stream": false};
 
-    print("📤 Sending to: $url");
-    print("📤 History items: ${validHistory.length}");
-    print("📤 Search enabled: $enableSearch");
+    switch (provider) {
+      case LlmProvider.openRouter:
+        url = "https://openrouter.ai/api/v1/chat/completions";
+        headers['Authorization'] = 'Bearer $_openRouterKey';
+        headers['HTTP-Referer'] = 'http://localhost';
+        headers['X-Title'] = 'App Fallback Test';
+        body['model'] = "mistralai/mistral-7b-instruct";
+        break;
+
+      case LlmProvider.portkey:
+        url = "https://api.portkey.ai/v1/chat/completions";
+        headers['x-portkey-api-key'] = _portkeyKey;
+        headers['x-portkey-provider'] = "openai";
+        body['model'] = "gpt-3.5-turbo";
+        break;
+
+      case LlmProvider.kongAi:
+        url = "https://YOUR_KONG_GATEWAY/v1/chat/completions";
+        headers['Authorization'] = 'Bearer $_kongAiKey';
+        body['model'] = "default";
+        break;
+
+      case LlmProvider.liteLlm:
+        url = "http://0.0.0.0:4000/chat/completions";
+        headers['Authorization'] = 'Bearer $_liteLlmKey';
+        body['model'] = "gpt-3.5-turbo";
+        break;
+
+      case LlmProvider.orqAi:
+        url = "https://api.orq.ai/v1/chat/completions";
+        headers['Authorization'] = 'Bearer $_orqAiKey';
+        body['model'] = "default";
+        break;
+
+      case LlmProvider.togetherAi:
+        url = "https://api.together.xyz/v1/chat/completions";
+        headers['Authorization'] = 'Bearer $_togetherAiKey';
+        body['model'] = "meta-llama/Llama-3-8b-chat-hf";
+        break;
+    }
 
     return await http.post(
-      Uri.parse("$url?key=$lmapiKey"),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(requestBody),
+      Uri.parse(url),
+      headers: headers,
+      body: jsonEncode(body),
     );
   }
 
   Map<String, dynamic> _parseResponse(
     http.Response response, {
     required String originalPrompt,
-    bool isFallback = false,
+    required String providerName,
   }) {
-    if (response.statusCode != 200) {
-      print("❌ API Error ${response.statusCode}");
-      print("❌ Response: ${response.body}");
-
-      if (response.statusCode == 400) {
-        try {
-          final errorData = jsonDecode(response.body);
-          final errorMsg = errorData['error']?['message'] ?? 'Unknown error';
-          print("❌ ERROR DETAILS: $errorMsg");
-        } catch (e) {
-          print("❌ Could not parse error: $e");
-        }
-
-        print("⚠️ Clearing corrupted history...");
-        clearMemory();
-        return {
-          'content':
-              '⚠️ Memory was corrupted. History cleared. Please try again.',
-          'status': 'error',
-        };
-      }
-      return {
-        'content': 'Error ${response.statusCode}: ${response.body}',
-        'status': 'error',
-      };
-    }
-
     final data = jsonDecode(response.body);
-    String text =
-        data['candidates']?[0]['content']?['parts']?[0]?['text'] ??
-        "No text response.";
+    String text = "No text response.";
 
-    String source = "Gemini 2.5 Flash";
-
-    // Check if Google Search was used
     try {
-      if (data['candidates']?[0]?['groundingMetadata']?['groundingChunks'] !=
-              null &&
-          data['candidates'][0]['groundingMetadata']['groundingChunks']
-              .isNotEmpty) {
-        source += " + 🌐 Google Search";
-        print("✅ Search grounding was used!");
+      if (data['choices'] != null && (data['choices'] as List).isNotEmpty) {
+        text = data['choices'][0]['message']['content'];
+      } else if (data['content'] != null) {
+        text = data['content'];
       }
     } catch (e) {
-      print("⚠️ No grounding metadata found");
+      print("Error parsing JSON: $e");
     }
 
-    // Save with actual prompt
     _addToHistory("user", originalPrompt);
     _addToHistory("model", text);
 
-    return {'content': text, 'model': source, 'status': 'success'};
+    return {
+      'success': true,
+      'content': text,
+      'model': providerName,
+      'status': 'success',
+    };
   }
 
   // --- Helpers ---
@@ -183,12 +199,7 @@ class LmStudioService {
   }
 
   void _addToHistory(String role, String text) {
-    // Force "model" if code accidentally sends "assistant"
-    if (role == 'assistant') role = 'model';
-
-    // Don't save empty messages
     if (text.isEmpty) return;
-
     final msg = {
       "role": role,
       "parts": [

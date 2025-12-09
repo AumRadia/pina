@@ -1,7 +1,7 @@
 import 'package:docx_to_text/docx_to_text.dart';
 import 'package:flutter/material.dart';
 import 'dart:io';
-import 'dart:typed_data'; // Needed for Image data
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:pina/models/image_generation_config.dart';
 import 'package:pina/screens/constants.dart';
@@ -11,14 +11,31 @@ import 'package:pina/services/submission_service.dart';
 import 'package:pina/models/assembly_config.dart';
 import 'package:pina/widgets/audio_config_dialog.dart';
 import 'package:pina/services/audio_transcription_service.dart';
-import 'package:pina/services/image_generation_service.dart'; // NEW IMPORT
-import 'package:pina/widgets/generation_output_view.dart'; // NEW IMPORT
+import 'package:pina/services/image_generation_service.dart';
+import 'package:pina/widgets/generation_output_view.dart';
 import 'package:pina/utils/transcript_formatter.dart';
 import 'package:pina/utils/file_download_helper.dart';
 import 'package:pina/widgets/download_options_dialog.dart';
 import 'package:pina/widgets/image_config_dialog.dart';
 import 'package:pina/widgets/image_download_dialog.dart';
 import 'package:read_pdf_text/read_pdf_text.dart';
+
+// Helper class for attachments
+class AttachedFile {
+  final File file;
+  final String name;
+  final String extension;
+  final int sizeBytes;
+  String? extractedText;
+
+  AttachedFile({
+    required this.file,
+    required this.name,
+    required this.extension,
+    required this.sizeBytes,
+    this.extractedText,
+  });
+}
 
 class LandingScreen extends StatefulWidget {
   final String title;
@@ -38,21 +55,22 @@ class LandingScreen extends StatefulWidget {
 
 class _LandingScreenState extends State<LandingScreen> {
   final TextEditingController controller = TextEditingController();
-  File? selectedDocument; // <--- Add this
-  String? documentContent; // <--- Add this to hold the text inside the file
+
+  // List to hold multiple files
+  List<AttachedFile> attachedFiles = [];
 
   // Services
   final LmStudioService _aiService = LmStudioService();
   final SubmissionService _submissionService = SubmissionService();
   final AudioTranscriptionService _audioService = AudioTranscriptionService();
   final ImageGenerationService _imageService = ImageGenerationService();
-  ImageGenerationConfig imageConfig = ImageGenerationConfig(); // NEW SERVICE
+  ImageGenerationConfig imageConfig = ImageGenerationConfig();
+  LlmProvider selectedProvider = LlmProvider.openRouter;
 
   // Outputs
   String? output;
-  List<Uint8List>? imageOutput; // NEW: Holds image data
-  OutputType currentOutputType =
-      OutputType.text; // NEW: Tracks what we are showing
+  List<Uint8List>? imageOutput;
+  OutputType currentOutputType = OutputType.text;
 
   final List<String> dataTypes = [
     "Text",
@@ -65,15 +83,12 @@ class _LandingScreenState extends State<LandingScreen> {
   Map<String, bool> toSelection = {};
   bool isLoading = false;
   int tokenCount = 0;
-
-  // Track the current prompt ID for the database update
   int? currentPromptId;
 
   // Audio-related state
   File? selectedAudioFile;
   bool isAudioToTextMode = false;
 
-  // Audio configuration with default settings
   AssemblyConfig audioConfig = AssemblyConfig(
     languageCode: 'en',
     punctuate: true,
@@ -94,6 +109,43 @@ class _LandingScreenState extends State<LandingScreen> {
     }
   }
 
+  Widget _buildProviderSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Select Provider:",
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 5),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<LlmProvider>(
+              value: selectedProvider,
+              isExpanded: true,
+              items: LlmProvider.values.map((LlmProvider provider) {
+                return DropdownMenuItem<LlmProvider>(
+                  value: provider,
+                  child: Text(provider.name.toUpperCase()),
+                );
+              }).toList(),
+              onChanged: (LlmProvider? newValue) {
+                if (newValue != null) {
+                  setState(() => selectedProvider = newValue);
+                }
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   void _autoSelectFromTitle() {
     List<String> parts = widget.title.split(" to ");
     if (parts.length >= 2) {
@@ -106,57 +158,138 @@ class _LandingScreenState extends State<LandingScreen> {
     }
   }
 
-  Future<void> _pickDocument() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: [
-        'txt',
-        'md',
-        'json',
-        'pdf',
-        'docx',
-      ], // Added pdf & docx
-    );
+  // Calculate current total size of all attachments
+  int get currentTotalSize =>
+      attachedFiles.fold(0, (sum, f) => sum + f.sizeBytes);
 
-    if (result != null) {
-      final file = File(result.files.single.path!);
-      final extension = result.files.single.extension?.toLowerCase();
-      String content = "";
+  // --- UPDATED FILE PICKER LOGIC ---
+  Future<void> _pickFiles() async {
+    // 1. Check Max Files Limit
+    if (attachedFiles.length >= 5) {
+      _showSnack("Maximum 5 files allowed.", isError: true);
+      return;
+    }
 
-      try {
-        setState(() => isLoading = true); // Show loading while parsing
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowMultiple: true,
+        allowedExtensions: [
+          'txt', 'md', 'json', 'pdf', 'docx', // Docs
+          'jpg', 'jpeg', 'png', 'webp', // Images
+          'mp4', 'mov', 'avi', 'mp3', // Media
+        ],
+      );
 
-        if (extension == 'pdf') {
-          // Parse PDF
-          content = await ReadPdfText.getPDFtext(file.path);
-        } else if (extension == 'docx') {
-          // Parse Word (Read as bytes first, then convert)
-          final bytes = await file.readAsBytes();
-          content = docxToText(bytes);
-        } else {
-          // Parse Text/MD/JSON (Simple read)
-          content = await file.readAsString();
+      if (result != null) {
+        setState(() => isLoading = true);
+
+        List<AttachedFile> newFiles = [];
+        int tempTotalSize = currentTotalSize;
+        bool countExceeded = false;
+
+        for (var platformFile in result.files) {
+          // 2. CHECK: Max Files Limit
+          if (attachedFiles.length + newFiles.length >= 5) {
+            countExceeded = true;
+            break;
+          }
+
+          // 3. CHECK: Individual File Size > 100MB
+          if (platformFile.size > 100 * 1024 * 1024) {
+            _showSnack("File size should be less than 100 MB", isError: true);
+            continue; // Skip this specific file, continue loop
+          }
+
+          // 4. CHECK: Total Size Limit > 100MB
+          if (tempTotalSize + platformFile.size > 100 * 1024 * 1024) {
+            _showSnack("Total size cannot exceed 100 MB", isError: true);
+            break; // Stop adding more files
+          }
+
+          // Process Valid File
+          final file = File(platformFile.path!);
+          final extension = platformFile.extension?.toLowerCase() ?? "";
+          String? content;
+
+          try {
+            if (extension == 'pdf') {
+              content = await ReadPdfText.getPDFtext(file.path);
+            } else if (extension == 'docx') {
+              final bytes = await file.readAsBytes();
+              content = docxToText(bytes);
+            } else if (['txt', 'md', 'json'].contains(extension)) {
+              content = await file.readAsString();
+            } else {
+              content = null; // Media files
+            }
+          } catch (e) {
+            print("Error reading ${platformFile.name}: $e");
+          }
+
+          newFiles.add(
+            AttachedFile(
+              file: file,
+              name: platformFile.name,
+              extension: extension,
+              sizeBytes: platformFile.size,
+              extractedText: content,
+            ),
+          );
+
+          tempTotalSize += platformFile.size;
         }
 
-        // Save to State & RAG
+        // Update State
         setState(() {
-          selectedDocument = file;
-          documentContent = content;
+          attachedFiles.addAll(newFiles);
           isLoading = false;
         });
 
-        // Send to your AI Memory
-        if (content.isNotEmpty) {
-          await _aiService.addDocumentToRAG(content);
-          _showSnack("Document added to AI Memory!");
-        } else {
-          _showSnack("Document was empty.");
+        if (countExceeded) {
+          _showSnack(
+            "Stopped adding files: Max 5 files reached.",
+            isError: true,
+          );
         }
-      } catch (e) {
-        setState(() => isLoading = false);
-        _showSnack("Error reading file: $e", isError: true);
+
+        // Update AI Context
+        _updateAiContext();
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+      _showSnack("Error picking files: $e", isError: true);
+    }
+  }
+
+  void _removeFile(int index) {
+    setState(() {
+      attachedFiles.removeAt(index);
+    });
+    _updateAiContext();
+  }
+
+  Future<void> _updateAiContext() async {
+    if (attachedFiles.isEmpty) {
+      _aiService.removeDocument();
+      return;
+    }
+
+    StringBuffer combinedContext = StringBuffer();
+    combinedContext.writeln("USER UPLOADED FILES SUMMARY:");
+
+    for (var doc in attachedFiles) {
+      combinedContext.writeln("\n--- File Name: ${doc.name} ---");
+      if (doc.extractedText != null && doc.extractedText!.isNotEmpty) {
+        combinedContext.writeln(doc.extractedText);
+      } else {
+        combinedContext.writeln(
+          "[Media file: ${doc.name} - No text extracted]",
+        );
       }
     }
+
+    await _aiService.addDocumentToRAG(combinedContext.toString());
   }
 
   List<String> _getSelectedList(Map<String, bool> map) {
@@ -195,11 +328,8 @@ class _LandingScreenState extends State<LandingScreen> {
       context: context,
       builder: (context) => ImageConfigDialog(initialConfig: imageConfig),
     );
-
     if (result != null) {
-      setState(() {
-        imageConfig = result;
-      });
+      setState(() => imageConfig = result);
       _showSnack("Image settings updated successfully");
     }
   }
@@ -209,11 +339,8 @@ class _LandingScreenState extends State<LandingScreen> {
       context: context,
       builder: (context) => AudioConfigDialog(initialConfig: audioConfig),
     );
-
     if (result != null) {
-      setState(() {
-        audioConfig = result;
-      });
+      setState(() => audioConfig = result);
       _showSnack("Audio settings updated successfully");
     }
   }
@@ -233,8 +360,6 @@ class _LandingScreenState extends State<LandingScreen> {
     if (result == null) return;
 
     bool success = false;
-    String message = '';
-
     switch (result) {
       case DownloadOption.text:
         success = await FileDownloadHelper.downloadAsText(
@@ -242,32 +367,23 @@ class _LandingScreenState extends State<LandingScreen> {
           output!,
           selectedAudioFile!.path.split('/').last,
         );
-        message = success
-            ? 'Transcript downloaded as text successfully!'
-            : 'Failed to download transcript';
         break;
-
       case DownloadOption.pdf:
         success = await FileDownloadHelper.downloadAsPdf(
           context,
           output!,
           selectedAudioFile!.path.split('/').last,
         );
-        message = success
-            ? 'Transcript downloaded as PDF successfully!'
-            : 'Failed to download PDF';
         break;
-
       case DownloadOption.gmail:
-        success = await FileDownloadHelper.shareToGmail(
+        await FileDownloadHelper.shareToGmail(
           context,
           output!,
           selectedAudioFile!.path.split('/').last,
         );
         return;
-
       case DownloadOption.drive:
-        success = await FileDownloadHelper.shareToDrive(
+        await FileDownloadHelper.shareToDrive(
           context,
           output!,
           selectedAudioFile!.path.split('/').last,
@@ -275,15 +391,7 @@ class _LandingScreenState extends State<LandingScreen> {
         return;
     }
 
-    if (message.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: success ? Colors.green : Colors.red,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
+    if (success) _showSnack("Downloaded successfully!");
   }
 
   Future<void> _submitData() async {
@@ -291,10 +399,8 @@ class _LandingScreenState extends State<LandingScreen> {
     final fromList = _getSelectedList(fromSelection);
     final toList = _getSelectedList(toSelection);
 
-    // Determine Logic Flow
     final isAudioToText = fromList.contains("Audio") && toList.contains("Text");
-    final isTextToImage =
-        fromList.contains("Text") && toList.contains("Image"); // NEW CHECK
+    final isTextToImage = fromList.contains("Text") && toList.contains("Image");
 
     if (isAudioToText && selectedAudioFile == null) {
       _showSnack("Please upload an audio file first");
@@ -308,12 +414,11 @@ class _LandingScreenState extends State<LandingScreen> {
     setState(() {
       isLoading = true;
       output = null;
-      imageOutput = null; // Clear previous image
+      imageOutput = null;
       isAudioToTextMode = isAudioToText;
       currentPromptId = null;
     });
 
-    // 1. Save Input to Database (Validates tokens/active status)
     final result = await _submissionService.validateAndSaveInput(
       userName: widget.userName,
       userEmail: widget.userEmail,
@@ -336,17 +441,13 @@ class _LandingScreenState extends State<LandingScreen> {
       return;
     }
 
-    // 2. Capture the Prompt ID
-    setState(() {
-      currentPromptId = result.promptId;
-    });
+    setState(() => currentPromptId = result.promptId);
 
     String finalText = "";
     String modelUsed = "";
 
     try {
       if (isAudioToText) {
-        // --- EXISTING AUDIO LOGIC ---
         final Map<String, dynamic>? resultData = await _audioService
             .transcribeAudio(selectedAudioFile!, audioConfig);
 
@@ -358,29 +459,24 @@ class _LandingScreenState extends State<LandingScreen> {
         currentOutputType = OutputType.text;
         modelUsed = "AssemblyAI-STT";
       } else if (isTextToImage) {
-        print("DEBUG: Prompt -> $promptText");
-        print("DEBUG: Config Params -> ${imageConfig.toJson()}");
-        // UPDATE THIS LINE TO PASS CONFIG
         imageOutput = await _imageService.generateImage(
           promptText,
           imageConfig,
         );
-
         currentOutputType = OutputType.image;
         modelUsed = "Stable-Diffusion-XL";
         finalText = "Generated ${imageOutput?.length} Images";
       } else {
-        // --- EXISTING TEXT LOGIC ---
-        final aiResponse = await _aiService.generateResponse(promptText);
+        final aiResponse = await _aiService.generateResponse(
+          promptText,
+          selectedProvider,
+        );
         if (aiResponse is Map<String, dynamic>) {
-          finalText =
-              aiResponse['content'] ??
-              aiResponse['response'] ??
-              aiResponse.toString();
-          modelUsed = aiResponse['model'] ?? "LM-Studio";
+          finalText = aiResponse['content'] ?? aiResponse.toString();
+          modelUsed = aiResponse['model'] ?? selectedProvider.name;
         } else {
           finalText = aiResponse.toString();
-          modelUsed = "LM-Studio";
+          modelUsed = selectedProvider.name;
         }
         currentOutputType = OutputType.text;
       }
@@ -390,7 +486,6 @@ class _LandingScreenState extends State<LandingScreen> {
       currentOutputType = OutputType.text;
     }
 
-    // 3. Save Output to Database using the same ID
     if (currentPromptId != null) {
       await _submissionService.saveOutput(
         promptId: currentPromptId!,
@@ -450,6 +545,11 @@ class _LandingScreenState extends State<LandingScreen> {
             const SizedBox(height: 8),
             _buildTokenCounter(),
             const SizedBox(height: 15),
+
+            // --- ATTACHMENTS SECTION ---
+            if (attachedFiles.isNotEmpty) _buildAttachmentsList(),
+
+            const SizedBox(height: 15),
             if (toSelection["Image"] == true) ...[
               Align(
                 alignment: Alignment.centerRight,
@@ -459,22 +559,21 @@ class _LandingScreenState extends State<LandingScreen> {
                     backgroundColor: Colors.black,
                     foregroundColor: Colors.white,
                   ),
-                  icon: const Icon(Icons.tune), // Settings slider icon
+                  icon: const Icon(Icons.tune),
                   label: const Text("Image Settings"),
                 ),
               ),
               const SizedBox(height: 10),
             ],
-            // Only show Audio upload if "Audio" is selected in "From"
             if (fromSelection["Audio"] == true) ...[
               _buildAudioSection(),
               const SizedBox(height: 15),
             ],
 
             _buildDataTypeSelections(),
+            const SizedBox(height: 15),
+            _buildProviderSelector(),
             const SizedBox(height: 30),
-
-            // Updated Output Section to handle Images
             if (output != null || imageOutput != null) _buildOutputSection(),
           ],
         ),
@@ -483,61 +582,80 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   Widget _buildPromptInput() {
+    return TextField(
+      controller: controller,
+      maxLines: null,
+      onChanged: (value) => setState(() => tokenCount = estimateTokens(value)),
+      decoration: InputDecoration(
+        hintText: "type here something",
+        border: const OutlineInputBorder(),
+        prefixIcon: const Icon(Icons.search),
+        // --- Plus Button / Attach Icon ---
+        suffixIcon: IconButton(
+          icon: const Icon(Icons.add_circle_outline, color: Colors.blue),
+          onPressed: _pickFiles,
+          tooltip: "Add Files (Max 5)",
+        ),
+      ),
+    );
+  }
+
+  // --- WIDGET: Display Attached Files ---
+  Widget _buildAttachmentsList() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
-          controller: controller,
-          maxLines: null,
-          onChanged: (value) {
-            setState(() {
-              tokenCount = estimateTokens(value);
-            });
-          },
-          decoration: InputDecoration(
-            hintText: "type here something",
-            border: const OutlineInputBorder(),
-            prefixIcon: const Icon(Icons.search),
-            // --- NEW ATTACHMENT BUTTON ---
-            suffixIcon: IconButton(
-              icon: Icon(
-                Icons.attach_file,
-                color: selectedDocument != null ? Colors.green : Colors.grey,
-              ),
-              onPressed: _pickDocument, // Calls the function above
-              tooltip: "Attach Document (TXT/MD)",
-            ),
-          ),
+        const Text(
+          "Attached Files:",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
         ),
-        // --- VISUAL INDICATOR ---
-        if (selectedDocument != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0),
-            child: Row(
-              children: [
-                const Icon(Icons.description, size: 16, color: Colors.blue),
-                const SizedBox(width: 5),
-                Text(
-                  "Analyzing: ${selectedDocument!.path.split('/').last}",
-                  style: const TextStyle(
-                    color: Colors.blue,
-                    fontWeight: FontWeight.bold,
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: List.generate(attachedFiles.length, (index) {
+            final file = attachedFiles[index];
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.grey[400]!),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Icon
+                  Icon(
+                    ['jpg', 'png', 'jpeg'].contains(file.extension)
+                        ? Icons.image
+                        : ['mp4', 'mov', 'avi'].contains(file.extension)
+                        ? Icons.videocam
+                        : Icons.description,
+                    size: 16,
+                    color: Colors.black54,
                   ),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 16),
-                  onPressed: () {
-                    setState(() {
-                      selectedDocument = null;
-                      documentContent = null;
-                    });
-                    // Optional: You might want a clearRAG() function in your service too
-                  },
-                ),
-              ],
-            ),
-          ),
+                  const SizedBox(width: 5),
+                  // Name
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 150),
+                    child: Text(
+                      file.name,
+                      style: const TextStyle(fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Cross Mark to Remove
+                  InkWell(
+                    onTap: () => _removeFile(index),
+                    child: const Icon(Icons.close, size: 16, color: Colors.red),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ),
       ],
     );
   }
@@ -546,7 +664,7 @@ class _LandingScreenState extends State<LandingScreen> {
     return Align(
       alignment: Alignment.centerRight,
       child: Text(
-        "Tokens: $tokenCount",
+        "Tokens: $tokenCount | Files: ${attachedFiles.length}/5",
         style: const TextStyle(fontSize: 12, color: Colors.grey),
       ),
     );
@@ -598,16 +716,6 @@ class _LandingScreenState extends State<LandingScreen> {
             "Language: ${SupportedLanguages.getName(audioConfig.languageCode)}",
             style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
-          if (audioConfig.redactPii)
-            Text(
-              "PII Redaction: Enabled (${audioConfig.redactPiiPolicies.length} categories)",
-              style: const TextStyle(fontSize: 12, color: Colors.blue),
-            ),
-          if (audioConfig.speakerLabels)
-            const Text(
-              "Speaker Labels: Enabled",
-              style: TextStyle(fontSize: 12, color: Colors.blue),
-            ),
         ],
       ),
     );
@@ -619,42 +727,24 @@ class _LandingScreenState extends State<LandingScreen> {
         type: OutputType.image,
         imageData: imageOutput,
         onDownload: () async {
-          // --- FIXED: Call the Image Dialog ---
           if (imageOutput == null || imageOutput!.isEmpty) return;
-
           final ImageDialogResult? result = await showDialog<ImageDialogResult>(
             context: context,
             builder: (context) => ImageDownloadDialog(
-              images: imageOutput!, // Pass the list of images
-              promptId: currentPromptId ?? 0, // Pass the prompt ID for tracking
+              images: imageOutput!,
+              promptId: currentPromptId ?? 0,
             ),
           );
-
-          if (result == null) return; // User closed dialog without action
-
-          // Handle the action with actual implementation
-          switch (result.action) {
-            case ImageAction.save:
-              // Call the actual save function
-              await FileDownloadHelper.saveImagesToGallery(
-                context,
-                result.selectedImages,
-              );
-              break;
-            case ImageAction.gmail:
-              _showSnack("Gmail sharing coming soon!");
-              // TODO: Implement Gmail sharing
-              break;
-            case ImageAction.drive:
-              _showSnack("Google Drive upload coming soon!");
-              // TODO: Implement Drive upload
-              break;
+          if (result != null && result.action == ImageAction.save) {
+            await FileDownloadHelper.saveImagesToGallery(
+              context,
+              result.selectedImages,
+            );
           }
         },
       );
     }
 
-    // Otherwise, use your existing Text/Audio layout
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -671,10 +761,6 @@ class _LandingScreenState extends State<LandingScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
                 ),
                 icon: const Icon(Icons.download, size: 18),
                 label: const Text("Download"),
