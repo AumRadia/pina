@@ -1,5 +1,3 @@
-// lib/services/submission_service.dart
-
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:pina/screens/constants.dart';
@@ -21,24 +19,18 @@ class SubmissionResult {
 class SubmissionService {
   final String saveInputUrl = "${ApiConstants.authUrl}/api/save-input";
   final String saveOutputUrl = "${ApiConstants.authUrl}/api/save-output";
-  // New endpoint assumption for pre-check
-
   final String checkStatusUrl =
       "${ApiConstants.authUrl}/api/auth/check-user-status";
 
-  /// New: Checks if user is Active, Paid, and has Tokens BEFORE entering screens
   Future<SubmissionResult> checkUserEligibility({
     required String userEmail,
   }) async {
     try {
-      // Assuming your backend has a lightweight status check endpoint
-      // If not, you might need to adapt this to your existing backend logic
       final res = await http.post(
         Uri.parse(checkStatusUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"userEmail": userEmail}),
       );
-
       final body = jsonDecode(res.body);
 
       if (res.statusCode == 200) {
@@ -51,7 +43,6 @@ class SubmissionService {
         );
       }
     } catch (e) {
-      // Fail open or closed depending on preference. Here we fail closed.
       return SubmissionResult(
         success: false,
         errorMessage: "Connection failed: $e",
@@ -60,30 +51,31 @@ class SubmissionService {
     }
   }
 
-  // ... (Keep existing validateAndSaveInput and saveOutput methods exactly as they were) ...
+  // --- UPDATED METHOD ---
   Future<SubmissionResult> validateAndSaveInput({
-    required String userName,
+    required String userId, // <--- CHANGED: Accepts userId
     required String userEmail,
     required String prompt,
     required List<String> fromList,
     required List<String> toList,
+    Map<String, dynamic>? inputParams,
   }) async {
-    // ... existing code ...
-    // (Included for context, no changes needed here provided it's the same file)
     try {
       final res = await http.post(
         Uri.parse(saveInputUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          "userName": userName,
+          "userId": userId, // <--- SEND USER ID
           "userEmail": userEmail,
           "prompt": prompt,
           "from": fromList,
           "to": toList,
+          "inputParams": inputParams ?? {},
         }),
       );
 
       final body = jsonDecode(res.body);
+      ;
 
       if (res.statusCode == 200) {
         return SubmissionResult(
@@ -119,20 +111,24 @@ class SubmissionService {
     }
   }
 
+  // --- UPDATED METHOD ---
   Future<void> saveOutput({
     required int promptId,
+    required String userId, // <--- CHANGED: Accepts userId
     required String content,
     required String modelName,
+    Map<String, dynamic>? outputParams,
   }) async {
-    // ... existing code ...
     try {
       await http.post(
         Uri.parse(saveOutputUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "promptId": promptId,
+          "userId": userId, // <--- SEND USER ID
           "content": content,
           "modelName": modelName,
+          "outputParams": outputParams ?? {},
         }),
       );
     } catch (e) {

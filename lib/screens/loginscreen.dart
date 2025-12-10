@@ -6,8 +6,6 @@ import 'package:pina/screens/constants.dart';
 import 'package:pina/screens/registration.dart';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
-
-// CHANGED: Import MainMenuScreen instead of Trial
 import 'package:pina/screens/main_menu_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -81,12 +79,15 @@ class _LoginScreenState extends State<LoginScreen> {
         }
 
         if (mounted) {
-          // CHANGED: Navigate to MainMenuScreen
+          // --- FIXED: Pass userId to MainMenuScreen ---
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (context) =>
-                  MainMenuScreen(userName: userName, userEmail: userEmail),
+              builder: (context) => MainMenuScreen(
+                userName: userName,
+                userEmail: userEmail,
+                userId: userId?.toString(), // <--- ADDED THIS
+              ),
             ),
           );
         }
@@ -160,12 +161,15 @@ class _LoginScreenState extends State<LoginScreen> {
             await _saveUserSession(userId, userName, userEmail);
           }
 
-          // CHANGED: Navigate to MainMenuScreen
+          // --- FIXED: Pass userId to MainMenuScreen ---
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (context) =>
-                  MainMenuScreen(userName: userName, userEmail: userEmail),
+              builder: (context) => MainMenuScreen(
+                userName: userName,
+                userEmail: userEmail,
+                userId: userId?.toString(), // <--- ADDED THIS
+              ),
             ),
           );
         } else if (response.statusCode == 409) {
@@ -200,6 +204,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // UI remains exactly the same as before
     return Scaffold(
       backgroundColor: Colors.white,
       body: Center(

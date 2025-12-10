@@ -8,7 +8,7 @@ class AssemblyConfig {
   bool sentimentAnalysis;
   bool summarization;
   String summaryModel;
-  String summaryType; // <--- NEW FIELD
+  String summaryType;
   bool filterProfanity;
   bool contentSafety;
   bool redactPii;
@@ -28,7 +28,7 @@ class AssemblyConfig {
     this.sentimentAnalysis = false,
     this.summarization = false,
     this.summaryModel = 'informative',
-    this.summaryType = 'bullets', // <--- Default value
+    this.summaryType = 'bullets',
     this.filterProfanity = false,
     this.contentSafety = false,
     this.redactPii = false,
@@ -39,54 +39,25 @@ class AssemblyConfig {
     this.customSpelling = const [],
   });
 
-  // Convert to JSON for API request
+  // --- UPDATED toJson METHOD ---
+  // Stores ONLY the 10 fields you requested.
+  // Saves 'true' or 'false' for every boolean.
   Map<String, dynamic> toJson() {
-    final Map<String, dynamic> json = {
+    return {
       'language_code': languageCode,
       'punctuate': punctuate,
       'format_text': formatText,
+      'speaker_labels': speakerLabels,
+      'sentiment_analysis': sentimentAnalysis,
+      'summarization': summarization,
+      'auto_chapters': autoChapters,
+      'auto_highlights': autoHighlights,
+      'filter_profanity': filterProfanity,
+      'content_safety': contentSafety,
     };
-
-    bool isEnglish = languageCode.toLowerCase().startsWith('en');
-
-    if (multichannel) json['multichannel'] = true;
-    if (speakerLabels) json['speaker_labels'] = true;
-    if (filterProfanity) json['filter_profanity'] = true;
-
-    // Remember to use the fix from earlier: 'content_safety' not 'content_safety_labels'
-    if (contentSafety) json['content_safety'] = true;
-
-    if (redactPii && redactPiiPolicies.isNotEmpty) {
-      json['redact_pii'] = true;
-      json['redact_pii_policies'] = redactPiiPolicies;
-      json['redact_pii_sub'] = redactPiiSub;
-    }
-
-    if (audioStartFrom != null && audioStartFrom! > 0) {
-      json['audio_start_from'] = audioStartFrom;
-    }
-
-    if (isEnglish) {
-      if (autoHighlights) json['auto_highlights'] = true;
-      if (sentimentAnalysis) json['sentiment_analysis'] = true;
-
-      if (autoChapters) {
-        json['auto_chapters'] = true;
-      } else if (summarization) {
-        json['summarization'] = true;
-        json['summary_model'] = summaryModel;
-        json['summary_type'] = summaryType; // <--- ADDED THIS LINE
-      }
-    }
-
-    if (customSpelling.isNotEmpty) {
-      json['word_boost'] = customSpelling;
-      json['boost_param'] = 'high';
-    }
-
-    return json;
   }
 
+  // (The rest of the class remains the same to support app functionality)
   AssemblyConfig copyWith({
     String? languageCode,
     int? audioStartFrom,
@@ -97,7 +68,7 @@ class AssemblyConfig {
     bool? sentimentAnalysis,
     bool? summarization,
     String? summaryModel,
-    String? summaryType, // <--- Add to copyWith
+    String? summaryType,
     bool? filterProfanity,
     bool? contentSafety,
     bool? redactPii,
@@ -117,7 +88,7 @@ class AssemblyConfig {
       sentimentAnalysis: sentimentAnalysis ?? this.sentimentAnalysis,
       summarization: summarization ?? this.summarization,
       summaryModel: summaryModel ?? this.summaryModel,
-      summaryType: summaryType ?? this.summaryType, // <--- Add here
+      summaryType: summaryType ?? this.summaryType,
       filterProfanity: filterProfanity ?? this.filterProfanity,
       contentSafety: contentSafety ?? this.contentSafety,
       redactPii: redactPii ?? this.redactPii,
@@ -130,21 +101,27 @@ class AssemblyConfig {
   }
 }
 
-// Supported languages
 class SupportedLanguages {
   static const Map<String, String> languages = {
     'en': 'English',
     'hi': 'हिन्दी (Hindi)',
-    // Add more languages as needed
+    'es': 'Spanish',
+    'fr': 'French',
+    'de': 'German',
+    'it': 'Italian',
+    'pt': 'Portuguese',
+    'nl': 'Dutch',
+    'ja': 'Japanese',
+    'uk': 'Ukrainian',
+    'pl': 'Polish',
+    'ru': 'Russian',
   };
 
   static List<String> get codes => languages.keys.toList();
   static List<String> get names => languages.values.toList();
-
   static String getName(String code) => languages[code] ?? code;
 }
 
-// PII Redaction Policies
 class PIIRedactionPolicies {
   static const Map<String, String> policies = {
     'medical_process': 'Medical Process',

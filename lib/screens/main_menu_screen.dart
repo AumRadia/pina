@@ -3,13 +3,19 @@
 import 'package:flutter/material.dart';
 import 'package:pina/screens/landing.dart';
 import 'package:pina/screens/loginscreen.dart';
-import 'package:pina/services/submission_service.dart'; // Import Service
+import 'package:pina/services/submission_service.dart';
 
 class MainMenuScreen extends StatefulWidget {
+  final String? userId; // <--- NEW FIELD
   final String? userName;
   final String? userEmail;
 
-  const MainMenuScreen({this.userName, super.key, this.userEmail});
+  const MainMenuScreen({
+    super.key,
+    this.userId, // <--- Add to constructor
+    this.userName,
+    this.userEmail,
+  });
 
   @override
   State<MainMenuScreen> createState() => _MainMenuScreenState();
@@ -20,7 +26,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   bool _isLoading = false;
 
   final Map<String, List<String>> menu = {
-    // ... (Keep your existing menu map) ...
     "Text": [
       "Text to Text",
       "Text to Image",
@@ -62,8 +67,10 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     BuildContext context,
     String optionTitle,
   ) async {
-    // CHECK 1: Local Null Check
-    if (widget.userName == null || widget.userEmail == null) {
+    // CHECK 1: Local Null Check (Added userId)
+    if (widget.userName == null ||
+        widget.userEmail == null ||
+        widget.userId == null) {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -71,7 +78,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       return;
     }
 
-    // CHECK 2: Server-side Eligibility Check (Active, Paid, Tokens)
+    // CHECK 2: Server-side Eligibility Check
     setState(() => _isLoading = true);
 
     final result = await _submissionService.checkUserEligibility(
@@ -87,6 +94,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         MaterialPageRoute(
           builder: (_) => LandingScreen(
             title: optionTitle,
+            userId: widget.userId!, // <--- PASS USER ID
             userName: widget.userName!,
             userEmail: widget.userEmail!,
           ),

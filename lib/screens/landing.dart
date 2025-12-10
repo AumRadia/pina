@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:pina/models/image_generation_config.dart';
-import 'package:pina/screens/constants.dart';
 import 'package:pina/services/lm_studio_service.dart';
 import 'package:pina/screens/loginscreen.dart';
 import 'package:pina/services/submission_service.dart';
@@ -40,11 +39,13 @@ class AttachedFile {
 class LandingScreen extends StatefulWidget {
   final String title;
   final String userName;
+  final String userId;
   final String userEmail;
 
   const LandingScreen({
     required this.title,
     required this.userName,
+    required this.userId,
     required this.userEmail,
     super.key,
   });
@@ -131,7 +132,8 @@ class _LandingScreenState extends State<LandingScreen> {
               items: LlmProvider.values.map((LlmProvider provider) {
                 return DropdownMenuItem<LlmProvider>(
                   value: provider,
-                  child: Text(provider.name.toUpperCase()),
+                  // Use the helper extension to show A1, A2, L1, etc.
+                  child: Text(provider.displayName),
                 );
               }).toList(),
               onChanged: (LlmProvider? newValue) {
@@ -419,12 +421,22 @@ class _LandingScreenState extends State<LandingScreen> {
       currentPromptId = null;
     });
 
+    // 1. PREPARE INPUT PARAMS
+    Map<String, dynamic> inputParams = {};
+    if (isAudioToText) {
+      inputParams = audioConfig.toJson(); // Capture AssemblyAI settings
+    } else if (isTextToImage) {
+      inputParams = imageConfig.toJson(); // Capture Image settings
+    }
+
+    // 2. SAVE INPUT (Pass the params)
     final result = await _submissionService.validateAndSaveInput(
-      userName: widget.userName,
+      userId: widget.userId,
       userEmail: widget.userEmail,
       prompt: isAudioToText ? "Audio Upload" : promptText,
       fromList: fromList,
       toList: toList,
+      inputParams: inputParams, // <--- NEW: Send config to backend
     );
 
     if (!result.success) {
@@ -445,20 +457,25 @@ class _LandingScreenState extends State<LandingScreen> {
 
     String finalText = "";
     String modelUsed = "";
+    Map<String, dynamic> outputParams = {}; // <--- NEW: To store raw result
 
     try {
       if (isAudioToText) {
+        // --- AUDIO MODE ---
         final Map<String, dynamic>? resultData = await _audioService
             .transcribeAudio(selectedAudioFile!, audioConfig);
 
         if (resultData != null) {
           finalText = TranscriptFormatter.formatTranscriptOutput(resultData);
+          outputParams =
+              resultData; // <--- Store full JSON (confidence, timestamps, etc)
         } else {
           finalText = "An unknown error occurred during transcription.";
         }
         currentOutputType = OutputType.text;
         modelUsed = "AssemblyAI-STT";
       } else if (isTextToImage) {
+        // --- IMAGE MODE ---
         imageOutput = await _imageService.generateImage(
           promptText,
           imageConfig,
@@ -466,17 +483,27 @@ class _LandingScreenState extends State<LandingScreen> {
         currentOutputType = OutputType.image;
         modelUsed = "Stable-Diffusion-XL";
         finalText = "Generated ${imageOutput?.length} Images";
+
+        // For images, we might just store metadata since we can't store binary data easily in MongoDB JSON
+        outputParams = {
+          "count": imageOutput?.length ?? 0,
+          "config_used": imageConfig.toJson(),
+        };
       } else {
+        // --- TEXT MODE ---
         final aiResponse = await _aiService.generateResponse(
           promptText,
           selectedProvider,
         );
+
         if (aiResponse is Map<String, dynamic>) {
           finalText = aiResponse['content'] ?? aiResponse.toString();
           modelUsed = aiResponse['model'] ?? selectedProvider.name;
+          outputParams = aiResponse; // <--- Store full raw AI response
         } else {
           finalText = aiResponse.toString();
           modelUsed = selectedProvider.name;
+          outputParams = {"raw_response": finalText};
         }
         currentOutputType = OutputType.text;
       }
@@ -484,13 +511,17 @@ class _LandingScreenState extends State<LandingScreen> {
       finalText = "Error: $e";
       modelUsed = "error";
       currentOutputType = OutputType.text;
+      outputParams = {"error": e.toString()};
     }
 
+    // 3. SAVE OUTPUT (Pass the params)
     if (currentPromptId != null) {
       await _submissionService.saveOutput(
         promptId: currentPromptId!,
+        userId: widget.userId, // <--- Pass userId
         content: finalText,
         modelName: modelUsed,
+        outputParams: outputParams,
       );
     }
 
