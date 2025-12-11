@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:pina/screens/constants.dart';
 import 'package:pina/screens/registration.dart';
+import 'package:pina/screens/trial.dart';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pina/screens/main_menu_screen.dart';
@@ -83,11 +84,7 @@ class _LoginScreenState extends State<LoginScreen> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (context) => MainMenuScreen(
-                userName: userName,
-                userEmail: userEmail,
-                userId: userId?.toString(), // <--- ADDED THIS
-              ),
+              builder: (context) => Trial(userEmail: userEmail),
             ),
           );
         }

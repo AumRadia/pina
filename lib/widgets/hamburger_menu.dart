@@ -2,26 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:pina/data/translation.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-// Import the new AI Checking Screen
-// Ensure you have created the file 'ai_checking_screen.dart' in your lib/screens folder
 import 'package:pina/screens/ai_checking_screen.dart';
 import 'package:pina/screens/explicit_content_check_screen.dart';
 import 'package:pina/screens/gdpr_scanner_screen.dart';
 import 'package:pina/screens/plagarism_check.dart';
 import 'package:pina/screens/reverse_search_screen.dart';
+// Import Main Menu for the "Conversion" navigation
+import 'package:pina/screens/main_menu_screen.dart';
 
 const String baseUrl = "http://10.11.161.23:4000";
 
-// Drawer widget shared between Trial and MyAi screens.
 class HamburgerMenu extends StatelessWidget {
+  // Added userId and userEmail to pass to MainMenuScreen during navigation
+  final String? userId;
   final String? userName;
+  final String? userEmail;
   final VoidCallback? onLogout;
   final String selectedLanguage;
   final Function(String)? onLanguageChanged;
 
   const HamburgerMenu({
     super.key,
+    this.userId,
     this.userName,
+    this.userEmail,
     this.onLogout,
     this.selectedLanguage = 'English',
     this.onLanguageChanged,
@@ -31,14 +35,14 @@ class HamburgerMenu extends StatelessWidget {
     return AppLocale.translations[id]?[selectedLanguage] ?? id;
   }
 
-  // --- FUNCTION: Shows the Contact Dialog and sends message ---
+  // --- FUNCTION: Shows the Contact Dialog ---
   void _showContactDialog(BuildContext context) {
     final TextEditingController messageController = TextEditingController();
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        bool isLoading = false; // Local flag scoped to the dialog.
+        bool isLoading = false;
 
         return StatefulBuilder(
           builder: (context, setState) {
@@ -76,22 +80,17 @@ class HamburgerMenu extends StatelessWidget {
                           });
 
                           try {
-                            // Constructing the message to include who sent it
                             final fullMessage =
                                 "User: ${userName ?? 'Guest'}\n\nMessage:\n$message";
 
                             final response = await http.post(
                               Uri.parse('$baseUrl/api/telegram/send'),
                               headers: {"Content-Type": "application/json"},
-                              body: jsonEncode({
-                                "message": fullMessage,
-                                // Backend uses default ID from .env if chatId is not passed
-                              }),
+                              body: jsonEncode({"message": fullMessage}),
                             );
 
                             if (context.mounted) {
-                              Navigator.of(context).pop(); // Close dialog
-
+                              Navigator.of(context).pop();
                               if (response.statusCode == 200) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
@@ -133,9 +132,9 @@ class HamburgerMenu extends StatelessWidget {
     );
   }
 
-  // Helper to show a "Coming Soon" message for new tools
+  // Helper to show a "Coming Soon" message
   void _showComingSoon(BuildContext context, String featureName) {
-    Navigator.pop(context); // Close drawer
+    Navigator.pop(context);
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text("$featureName is coming soon!")));
@@ -148,7 +147,7 @@ class HamburgerMenu extends StatelessWidget {
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
-          // --- HEADER SECTION ---
+          // --- HEADER ---
           DrawerHeader(
             decoration: BoxDecoration(color: Colors.blue.shade700),
             child: userName != null
@@ -172,171 +171,175 @@ class HamburgerMenu extends StatelessWidget {
                       ),
                     ],
                   )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      const Text(
-                        "My AI Menu",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        selectedLanguage,
-                        style: TextStyle(
-                          color: Colors.blue.shade100,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
+                : const Center(
+                    child: Text(
+                      "Menu",
+                      style: TextStyle(color: Colors.white, fontSize: 24),
+                    ),
                   ),
           ),
 
-          // --- MENU ITEMS ---
-          if (onLanguageChanged != null) ...[
-            // 1. LANGUAGE
-            ExpansionTile(
-              leading: const Icon(Icons.language, color: Colors.black54),
-              title: const Text("Language"),
-              subtitle: Text(
-                selectedLanguage,
-                style: TextStyle(color: Colors.blue.shade700),
-              ),
-              children: [
-                ListTile(
-                  contentPadding: const EdgeInsets.only(left: 72, right: 20),
-                  title: const Text("English"),
-                  trailing: selectedLanguage == 'English'
-                      ? const Icon(Icons.check, color: Colors.blue)
-                      : null,
-                  onTap: () => onLanguageChanged!('English'),
-                ),
-                ListTile(
-                  contentPadding: const EdgeInsets.only(left: 72, right: 20),
-                  title: const Text("Hindi"),
-                  trailing: selectedLanguage == 'Hindi'
-                      ? const Icon(Icons.check, color: Colors.blue)
-                      : null,
-                  onTap: () => onLanguageChanged!('Hindi'),
-                ),
-              ],
-            ),
+          // 1. HOME
+          ListTile(
+            leading: const Icon(Icons.home),
+            title: const Text("Home"),
+            onTap: () {
+              // Assuming Home is the initial route, or simply close drawer
+              Navigator.pop(context);
+            },
+          ),
 
-            const Divider(),
-
-            // 2. TOOLS SECTION (New)
-            ExpansionTile(
-              leading: const Icon(Icons.handyman_outlined, color: Colors.teal),
-              title: const Text(
-                "Tools",
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              childrenPadding: const EdgeInsets.only(left: 20),
-              children: [
-                // A. AI Deepfake Checking (Moved here)
-                ListTile(
-                  leading: const Icon(
-                    Icons.privacy_tip_outlined,
-                    color: Colors.deepPurple,
+          // 2. EDUCATION -> GOVT SCHOOL -> MICROSOFT NCS
+          ExpansionTile(
+            leading: const Icon(Icons.school),
+            title: const Text("Education"),
+            childrenPadding: const EdgeInsets.only(left: 20),
+            children: [
+              ExpansionTile(
+                leading: const Icon(Icons.account_balance),
+                title: const Text("Govt School"),
+                childrenPadding: const EdgeInsets.only(left: 20),
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.computer),
+                    title: const Text("Microsoft NCS"),
+                    onTap: () => _showComingSoon(context, "Microsoft NCS"),
                   ),
-                  title: const Text("AI Checking (Deepfake)"),
-                  onTap: () {
-                    Navigator.pop(context); // Close drawer
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => AiCheckingScreen(userId: 1),
-                      ),
-                    );
-                  },
-                ),
+                ],
+              ),
+            ],
+          ),
 
-                // B. IP Violation / Infringement Check
-                ListTile(
-                  leading: const Icon(Icons.copyright, color: Colors.orange),
-                  title: const Text("IP Infringement Check"),
-                  onTap: () => Navigator.push(
+          // 3. CONVERSION (Opens Main Menu Screen)
+          ListTile(
+            leading: const Icon(Icons.transform),
+            title: const Text("Conversion"),
+            onTap: () {
+              Navigator.pop(context); // Close drawer
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => MainMenuScreen(
+                    userId: userId,
+                    userName: userName,
+                    userEmail: userEmail,
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // 4. ENTERPRISE AI -> SOVEREIGN DATA
+          ExpansionTile(
+            leading: const Icon(Icons.business),
+            title: const Text("Enterprise AI"),
+            childrenPadding: const EdgeInsets.only(left: 20),
+            children: [
+              ListTile(
+                leading: const Icon(Icons.storage),
+                title: const Text("Sovereign Data"),
+                onTap: () => _showComingSoon(context, "Sovereign Data"),
+              ),
+            ],
+          ),
+
+          // 5. TOOLS (Existing items moved here)
+          ExpansionTile(
+            leading: const Icon(Icons.handyman_outlined),
+            title: const Text("Tools"),
+            childrenPadding: const EdgeInsets.only(left: 20),
+            children: [
+              ListTile(
+                leading: const Icon(
+                  Icons.privacy_tip_outlined,
+                  color: Colors.deepPurple,
+                ),
+                title: const Text("AI Checking (Deepfake)"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => ReverseSearchScreen(),
+                      builder: (context) => AiCheckingScreen(userId: 1),
                     ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.copyright, color: Colors.orange),
+                title: const Text("IP Infringement Check"),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ReverseSearchScreen(),
                   ),
                 ),
-
-                // C. Explicit Content Check
-                ListTile(
-                  leading: const Icon(Icons.explicit, color: Colors.redAccent),
-                  title: const Text("Explicit Content Check"),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ExplicitContentCheckScreen(),
-                      ),
-                    );
-                  },
-                ),
-
-                // D. Plagiarism Check
-                ListTile(
-                  leading: const Icon(Icons.copy_all, color: Colors.blueGrey),
-                  title: const Text("Plagiarism Check"),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => CopyleaksScanScreen(),
-                      ),
-                    );
-                  },
-                ),
-
-                // E. GDPR Compliance Check
-                ListTile(
-                  leading: const Icon(Icons.security, color: Colors.green),
-                  title: const Text("GDPR Compliance Check"),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => GDPRScannerScreen(),
-                    ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.explicit, color: Colors.redAccent),
+                title: const Text("Explicit Content Check"),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ExplicitContentCheckScreen(),
                   ),
                 ),
-              ],
-            ),
-
-            const Divider(),
-
-            // 3. CONTACT US
-            ListTile(
-              leading: const Icon(
-                Icons.contact_support_outlined,
-                color: Colors.black54,
               ),
-              title: Text(
-                getLabel('contact_us'),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
+              ListTile(
+                leading: const Icon(Icons.copy_all, color: Colors.blueGrey),
+                title: const Text("Plagiarism Check"),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => CopyleaksScanScreen(),
+                  ),
                 ),
               ),
-              onTap: () {
-                // Close the drawer first
-                Navigator.pop(context);
-                // Show the contact dialog
-                _showContactDialog(context);
-              },
-            ),
-          ],
+              ListTile(
+                leading: const Icon(Icons.security, color: Colors.green),
+                title: const Text("GDPR Compliance Check"),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => GDPRScannerScreen()),
+                ),
+              ),
+            ],
+          ),
 
-          // --- LOGOUT BUTTON ---
+          // 6. PRICING
+          ListTile(
+            leading: const Icon(Icons.price_change),
+            title: const Text("Pricing"),
+            onTap: () => _showComingSoon(context, "Pricing"),
+          ),
+
+          const Divider(),
+
+          // 7. ABOUT US -> LEGAL & CONTACT US
+          ExpansionTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text("About Us"),
+            childrenPadding: const EdgeInsets.only(left: 20),
+            children: [
+              ListTile(
+                leading: const Icon(Icons.gavel),
+                title: const Text("Legal"),
+                onTap: () => _showComingSoon(context, "Legal Information"),
+              ),
+              ListTile(
+                leading: const Icon(Icons.contact_support_outlined),
+                title: Text(getLabel('contact_us')),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showContactDialog(context);
+                },
+              ),
+            ],
+          ),
+
+          // 8. LOGOUT
           if (onLogout != null) ...[
-            if (onLanguageChanged != null) const Divider(),
-
+            const Divider(),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text(

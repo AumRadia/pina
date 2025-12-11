@@ -397,9 +397,77 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   Future<void> _submitData() async {
+    //onsubmit please select at one input or output
+    //server side validation of the input is pending
+    //User uplaoded file will be saved, checked with some external vendor, output from the external vendor will also be saved.So depending upon the utput message will be shown to the user :- please upload an appropriate file.  Submit button will remain disabled
+    //check for the balance of the user before going ahead
+
+    //go to the user table and using userid as primary key get the values for paid or free, balance, category
+
+    //if the user is user free and the category is NGO than only use small language models.
+    //if not paid this is only for paid user:- upgrade now
+    //input apikey, input para, prompt, weather structred or input
+
+    //apikeys will be saved in the table with encryption and decryption. we have to save it inside conversioninput table
+
+    //user's password and payment details will be kept private
+
+    //we will validate the output of the api than only show it to the user
+
+    //Translation show charcters in japanese or whatever laguage selected
+    //if it doesnt have have characters than show in english
+    //if the user is paid or not it comes under this
+    //small icons to......
+    //share to social media
+    //email it should to to themselves
+
+    //special, Big llm, Aggregators
+    //small llm
+    //if user is free only use small llm
+    //include all the small language models
+    //special :- canva
+    //special:- midjourney image generation
+    //speical:- runway
+    //special:- superintelligent
+    //special:- AMD, Nvdia
+    //if the user is paid
+    // {
+    //  we will use the special models
+    // }
+
+    // token/credit counting is pending
+    // we have to calculate input token
+    // we have to calculate total token calculation
+
+    //we have tp crate inout token field in converison input|
+    //we have to add 3 fields in conversion output table output toekn, total token, and one more
+    //total token/credit will be deducted from the  user balance column from the user-table
+
+    //we have to insert a new record in the transaction table
+    //tran_Id,group_id, user_id, from, to, vendor:-mistral, model name:-mitral, modelnumber, version number, input token, processing_token , output token, total_token, cost
+    //in next transaction trans_id will be increase group_id will be same
+
+    //if the user will be able to process further converison after the first transaction
+    //a more processing button which will allow, we will take last  output as input for next conversion task
+    //one more transaction will be stored for it in transaction id
+
+    //globalexception
+
+    //add to my AI
+
     final promptText = controller.text.trim();
     final fromList = _getSelectedList(fromSelection);
     final toList = _getSelectedList(toSelection);
+
+    if (fromList.isEmpty) {
+      _showSnack("Please select at least one input type (From)", isError: true);
+      return; // Stop execution
+    }
+
+    if (toList.isEmpty) {
+      _showSnack("Please select at least one output type (To)", isError: true);
+      return; // Stop execution
+    }
 
     final isAudioToText = fromList.contains("Audio") && toList.contains("Text");
     final isTextToImage = fromList.contains("Text") && toList.contains("Image");

@@ -99,16 +99,3 @@ class HomeScreen extends StatelessWidget {
     );
   }
 }
-
-// --- DUMMY LOGIN SCREEN FOR TESTING ---
-// class LoginScreen extends StatelessWidget {
-//   const LoginScreen({super.key});
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(title: const Text("Login Screen")),
-//       body: const Center(child: Text("Navigated here successfully!")),
-//     );
-//   }
-// }

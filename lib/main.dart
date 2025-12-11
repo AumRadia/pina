@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:pina/screens/main_menu_screen.dart';
+import 'package:pina/screens/registration.dart'; // Import Registration Screen
+import 'package:pina/screens/trial.dart';
+import 'package:pina/screens/loginscreen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,21 +14,19 @@ Future<void> main() async {
 
   // 1. Check for valid session
   final prefs = await SharedPreferences.getInstance();
-
-  // Note: We handle userId as nullable. If it's an int in prefs, we convert to String.
-  final int? userIdInt = prefs.getInt('userId');
-  final String? userName = prefs.getString('userName');
   final String? userEmail = prefs.getString('userEmail');
+  final String? userName = prefs.getString('userName');
 
-  // Convert int ID to String for consistency with the rest of the app
-  final String? userId = userIdInt?.toString();
+  // 2. DETERMINE START SCREEN
+  Widget startScreen;
 
-  // 2. PASS USER ID HERE
-  Widget startScreen = MainMenuScreen(
-    userName: userName,
-    userEmail: userEmail,
-    userId: userId, // <--- FIXED: Passing the ID
-  );
+  if (userEmail != null) {
+    // If user is already logged in, go to Trial (Home) directly
+    startScreen = Trial(userEmail: userEmail, userName: userName ?? "User");
+  } else {
+    // If no user is found, go to Registration
+    startScreen = const Registration();
+  }
 
   runApp(Mainapp(startScreen: startScreen));
 }

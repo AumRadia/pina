@@ -1,13 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:pina/screens/constants.dart';
 import 'package:pina/screens/loginscreen.dart';
-// import 'package:pina/screens/interest.dart'; // Uncomment if you have this file
-import 'dart:async'; // Import the constants file
+import 'package:pina/screens/registration_step2.dart'; // Import Step 2
 
 class Registration extends StatefulWidget {
   const Registration({super.key});
@@ -17,15 +13,6 @@ class Registration extends StatefulWidget {
 }
 
 class _RegistrationState extends State<Registration> {
-  String userCategory = "private"; // Dropdown selection.
-
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: ['email'],
-    serverClientId:
-        "684725372087-9018mjvp79oq4u1u74u249lm7lt2t8cd.apps.googleusercontent.com",
-  );
-
-  // Basic form controllers.
   final TextEditingController nameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController mobileController = TextEditingController();
@@ -78,166 +65,39 @@ class _RegistrationState extends State<Registration> {
     );
   }
 
-  void showMessage(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
-  // --- GOOGLE SIGN IN ---
-  Future<void> signInWithGoogle() async {
-    try {
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-
-      if (googleUser == null) {
-        return; // Cancelled
-      }
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-      final String? idToken = googleAuth.idToken;
-
-      if (idToken == null) {
-        showMessage("Failed to retrieve Google ID Token.");
-        await _googleSignIn.signOut();
-        return;
-      }
-
-      // UPDATED: Now uses ApiConstants
-      final url = Uri.parse("${ApiConstants.authUrl}/api/auth/google-auth");
-
-      final response = await http
-          .post(
-            url,
-            headers: {"Content-Type": "application/json"},
-            body: jsonEncode({"idToken": idToken}),
-          )
-          .timeout(
-            const Duration(seconds: 12),
-            onTimeout: () {
-              throw TimeoutException("Google sign-in timed out. Please retry.");
-            },
-          );
-
-      final data = jsonDecode(response.body);
-
-      if (mounted) {
-        if (response.statusCode >= 200 &&
-            response.statusCode < 300 &&
-            data["success"] == true) {
-          showMessage("Signed in with Google successfully!");
-
-          // Extract Data
-          String userName = "User";
-          String userEmail = "";
-
-          if (data['user'] != null) {
-            userName = data['user']['name'] ?? userName;
-            userEmail = data['user']['email'] ?? "";
-          }
-          if (userEmail.isEmpty) {
-            userEmail = googleUser.email;
-          }
-
-          // Navigate to next screen (Replace Interest with your actual next screen if needed)
-          /* Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) =>
-                  Interest(userName: userName, userEmail: userEmail),
-            ),
-          );
-          */
-          // For now, going to Login Screen as fallback or MainMenu if preferred
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => LoginScreen()),
-          );
-        } else {
-          showMessage(data["message"] ?? "Google Sign-In failed on server.");
-        }
-      }
-
-      await _googleSignIn.signOut();
-    } catch (error) {
-      print("GOOGLE_ERROR--->$error");
-      if (mounted) {
-        showMessage("An error occurred during Google Sign-In.");
-      }
-    }
-  }
-
-  // --- MANUAL REGISTRATION ---
-  Future<void> registerUser() async {
+  void goToNextStep() {
     final name = nameController.text.trim();
     final email = emailController.text.trim();
     final mobile = mobileController.text.trim();
     final password = passwordController.text.trim();
 
     if (name.isEmpty || email.isEmpty || mobile.isEmpty || password.isEmpty) {
-      showMessage("All fields required");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("All text fields are required")),
+      );
       return;
     }
 
-    try {
-      // UPDATED: Now uses ApiConstants
-      final url = Uri.parse("${ApiConstants.authUrl}/api/auth/register");
-
-      String? base64Image;
-      if (selectedImage != null) {
-        List<int> imageBytes = await selectedImage!.readAsBytes();
-        base64Image = base64Encode(imageBytes);
-      }
-
-      final response = await http
-          .post(
-            url,
-            headers: {"Content-Type": "application/json"},
-            body: jsonEncode({
-              "name": name,
-              "email": email,
-              "mobile": mobile,
-              "password": password,
-              "status": "active",
-              "usertype": "free",
-              "profilePicture": base64Image,
-            }),
-          )
-          .timeout(
-            const Duration(seconds: 12),
-            onTimeout: () {
-              throw TimeoutException("Registration timed out. Please retry.");
-            },
-          );
-
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 201 && data["success"] == true) {
-        showMessage("Registration Success!");
-
-        await Future.delayed(const Duration(seconds: 1));
-
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              // builder: (context) => Interest(userName: name, userEmail: email),
-              builder: (context) => LoginScreen(),
-            ),
-          );
-        }
-      } else {
-        showMessage(data["toastMessage"] ?? "Failed");
-      }
-    } catch (e) {
-      print("REG ERROR: $e");
-      showMessage("Server error. Check connection.");
-    }
+    // Navigate to Step 2, passing the data
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => RegistrationStep2(
+          name: name,
+          email: email,
+          mobile: mobile,
+          password: password,
+          imageFile: selectedImage,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Register"),
+        title: const Text("Register - Step 1"),
         backgroundColor: Colors.blue.shade700,
       ),
       body: SingleChildScrollView(
@@ -254,14 +114,18 @@ class _RegistrationState extends State<Registration> {
                     ? FileImage(selectedImage!)
                     : null,
                 child: selectedImage == null
-                    ? Icon(Icons.camera_alt, size: 40, color: Colors.white70)
+                    ? const Icon(
+                        Icons.camera_alt,
+                        size: 40,
+                        color: Colors.white70,
+                      )
                     : null,
               ),
             ),
-
+            const SizedBox(height: 10),
+            const Text("Profile Picture (Optional)"),
             const SizedBox(height: 20),
 
-            // Name
             TextField(
               controller: nameController,
               decoration: const InputDecoration(
@@ -269,10 +133,7 @@ class _RegistrationState extends State<Registration> {
                 border: OutlineInputBorder(),
               ),
             ),
-
             const SizedBox(height: 20),
-
-            // Email
             TextField(
               controller: emailController,
               decoration: const InputDecoration(
@@ -280,10 +141,7 @@ class _RegistrationState extends State<Registration> {
                 border: OutlineInputBorder(),
               ),
             ),
-
             const SizedBox(height: 20),
-
-            // Mobile
             TextField(
               controller: mobileController,
               keyboardType: TextInputType.phone,
@@ -292,10 +150,7 @@ class _RegistrationState extends State<Registration> {
                 border: OutlineInputBorder(),
               ),
             ),
-
             const SizedBox(height: 20),
-
-            // Password
             TextField(
               controller: passwordController,
               obscureText: true,
@@ -304,80 +159,30 @@ class _RegistrationState extends State<Registration> {
                 border: OutlineInputBorder(),
               ),
             ),
-
             const SizedBox(height: 25),
 
-            DropdownButtonFormField<String>(
-              value: userCategory,
-              decoration: const InputDecoration(
-                labelText: "Account Type",
-                border: OutlineInputBorder(),
+            // Next Button
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: goToNextStep,
+                child: const Text("Next"),
               ),
-              items: const [
-                DropdownMenuItem(value: "private", child: Text("Private")),
-                DropdownMenuItem(value: "company", child: Text("Company")),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  userCategory = value!;
-                });
+            ),
+            const SizedBox(height: 20),
+
+            TextButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => LoginScreen()),
+                );
               },
-            ),
-            const SizedBox(height: 20),
-            // Submit Button
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: registerUser,
-                child: const Text("Register"),
-              ),
-            ),
-            const SizedBox(height: 20),
-            // Login Link
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => LoginScreen()),
-                  );
-                },
-                child: const Text("Already a user"),
-              ),
-            ),
-
-            const SizedBox(height: 25),
-
-            // Social Icons Row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                GestureDetector(
-                  onTap: signInWithGoogle,
-                  child: socialIcon("assets/icons/google.png"),
-                ),
-                const SizedBox(width: 20),
-                socialIcon("assets/icons/instagram.png"),
-                const SizedBox(width: 20),
-                socialIcon("assets/icons/facebook.png"),
-              ],
+              child: const Text("Already have an account? Login"),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget socialIcon(String assetPath) {
-    return CircleAvatar(
-      radius: 22,
-      backgroundColor: Colors.grey.shade200,
-      child: Padding(
-        padding: const EdgeInsets.all(6),
-        child: Image.asset(assetPath),
       ),
     );
   }

@@ -6,16 +6,11 @@ import 'package:pina/screens/loginscreen.dart';
 import 'package:pina/services/submission_service.dart';
 
 class MainMenuScreen extends StatefulWidget {
-  final String? userId; // <--- NEW FIELD
+  final String? userId;
   final String? userName;
   final String? userEmail;
 
-  const MainMenuScreen({
-    super.key,
-    this.userId, // <--- Add to constructor
-    this.userName,
-    this.userEmail,
-  });
+  const MainMenuScreen({super.key, this.userId, this.userName, this.userEmail});
 
   @override
   State<MainMenuScreen> createState() => _MainMenuScreenState();
@@ -61,6 +56,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       "Multiple to Video",
       "Multiple to Multiple",
     ],
+    // --- NEW CODING SECTION ---
+    "Coding": ["Generate Code", "Reverse Engg", "Confidentiality Check"],
   };
 
   Future<void> _handleOptionClick(
@@ -94,7 +91,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         MaterialPageRoute(
           builder: (_) => LandingScreen(
             title: optionTitle,
-            userId: widget.userId!, // <--- PASS USER ID
+            userId: widget.userId!,
             userName: widget.userName!,
             userEmail: widget.userEmail!,
           ),
