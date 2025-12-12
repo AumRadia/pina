@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:pina/models/image_generation_config.dart';
+import 'package:pina/models/local_whisper_config.dart';
 import 'package:pina/services/lm_studio_service.dart';
 import 'package:pina/screens/loginscreen.dart';
 import 'package:pina/services/submission_service.dart';
@@ -17,6 +18,7 @@ import 'package:pina/utils/file_download_helper.dart';
 import 'package:pina/widgets/download_options_dialog.dart';
 import 'package:pina/widgets/image_config_dialog.dart';
 import 'package:pina/widgets/image_download_dialog.dart';
+import 'package:pina/widgets/local_whisper_config_dialog.dart';
 import 'package:read_pdf_text/read_pdf_text.dart';
 
 // Helper class for attachments
@@ -67,6 +69,7 @@ class _LandingScreenState extends State<LandingScreen> {
   final ImageGenerationService _imageService = ImageGenerationService();
   ImageGenerationConfig imageConfig = ImageGenerationConfig();
   LlmProvider selectedProvider = LlmProvider.openRouter;
+  LocalWhisperConfig localWhisperConfig = LocalWhisperConfig();
 
   // Outputs
   String? output;
@@ -337,13 +340,27 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   Future<void> _showAudioConfig() async {
-    final result = await showDialog<AssemblyConfig>(
-      context: context,
-      builder: (context) => AudioConfigDialog(initialConfig: audioConfig),
-    );
-    if (result != null) {
-      setState(() => audioConfig = result);
-      _showSnack("Audio settings updated successfully");
+    if (selectedProvider == LlmProvider.assemblyAi) {
+      // Show Existing Assembly Dialog
+      final result = await showDialog<AssemblyConfig>(
+        context: context,
+        builder: (context) => AudioConfigDialog(initialConfig: audioConfig),
+      );
+      if (result != null) {
+        setState(() => audioConfig = result);
+        _showSnack("AssemblyAI settings updated");
+      }
+    } else if (selectedProvider == LlmProvider.localWhisper) {
+      // Show NEW Local Whisper Dialog
+      final result = await showDialog<LocalWhisperConfig>(
+        context: context,
+        builder: (context) =>
+            LocalWhisperConfigDialog(initialConfig: localWhisperConfig),
+      );
+      if (result != null) {
+        setState(() => localWhisperConfig = result);
+        _showSnack("Local Whisper settings updated");
+      }
     }
   }
 
@@ -396,115 +413,153 @@ class _LandingScreenState extends State<LandingScreen> {
     if (success) _showSnack("Downloaded successfully!");
   }
 
+  //onsubmit please select at one input or output
+  //server side validation of the input is pending
+  //User uplaoded file will be saved, checked with some external vendor, output from the external vendor will also be saved.So depending upon the utput message will be shown to the user :- please upload an appropriate file.  Submit button will remain disabled
+  //check for the balance of the user before going ahead
+
+  //go to the user table and using userid as primary key get the values for paid or free, balance, category
+
+  //if the user is user free and the category is NGO than only use small language models.
+  //if not paid this is only for paid user:- upgrade now
+  //input apikey, input para, prompt, weather structred or input
+
+  //apikeys will be saved in the table with encryption and decryption. we have to save it inside conversioninput table
+
+  //user's password and payment details will be kept private
+
+  //we will validate the output of the api than only show it to the user
+
+  //Translation show charcters in japanese or whatever laguage selected
+  //if it doesnt have have characters than show in english
+  //if the user is paid or not it comes under this
+  //small icons to......
+  //share to social media
+  //email it should to to themselves
+
+  //special, Big llm, Aggregators
+  //small llm
+  //if user is free only use small llm
+  //include all the small language models
+  //special :- canva
+  //special:- midjourney image generation
+  //speical:- runway
+  //special:- superintelligent
+  //special:- AMD, Nvdia
+  //if the user is paid
+  // {
+  //  we will use the special models
+  // }
+
+  // token/credit counting is pending
+  // we have to calculate input token
+  // we have to calculate total token calculation
+
+  //we have tp crate inout token field in converison input|
+  //we have to add 3 fields in conversion output table output toekn, total token, and one more
+  //total token/credit will be deducted from the  user balance column from the user-table
+
+  //we have to insert a new record in the transaction table
+  //tran_Id,group_id, user_id, from, to, vendor:-mistral, model name:-mitral, modelnumber, version number, input token, processing_token , output token, total_token, cost
+  //in next transaction trans_id will be increase group_id will be same
+
+  //if the user will be able to process further converison after the first transaction
+  //a more processing button which will allow, we will take last  output as input for next conversion task
+  //one more transaction will be stored for it in transaction id
+
+  //globalexception
+
+  //add to my AI
+
   Future<void> _submitData() async {
-    //onsubmit please select at one input or output
-    //server side validation of the input is pending
-    //User uplaoded file will be saved, checked with some external vendor, output from the external vendor will also be saved.So depending upon the utput message will be shown to the user :- please upload an appropriate file.  Submit button will remain disabled
-    //check for the balance of the user before going ahead
-
-    //go to the user table and using userid as primary key get the values for paid or free, balance, category
-
-    //if the user is user free and the category is NGO than only use small language models.
-    //if not paid this is only for paid user:- upgrade now
-    //input apikey, input para, prompt, weather structred or input
-
-    //apikeys will be saved in the table with encryption and decryption. we have to save it inside conversioninput table
-
-    //user's password and payment details will be kept private
-
-    //we will validate the output of the api than only show it to the user
-
-    //Translation show charcters in japanese or whatever laguage selected
-    //if it doesnt have have characters than show in english
-    //if the user is paid or not it comes under this
-    //small icons to......
-    //share to social media
-    //email it should to to themselves
-
-    //special, Big llm, Aggregators
-    //small llm
-    //if user is free only use small llm
-    //include all the small language models
-    //special :- canva
-    //special:- midjourney image generation
-    //speical:- runway
-    //special:- superintelligent
-    //special:- AMD, Nvdia
-    //if the user is paid
-    // {
-    //  we will use the special models
-    // }
-
-    // token/credit counting is pending
-    // we have to calculate input token
-    // we have to calculate total token calculation
-
-    //we have tp crate inout token field in converison input|
-    //we have to add 3 fields in conversion output table output toekn, total token, and one more
-    //total token/credit will be deducted from the  user balance column from the user-table
-
-    //we have to insert a new record in the transaction table
-    //tran_Id,group_id, user_id, from, to, vendor:-mistral, model name:-mitral, modelnumber, version number, input token, processing_token , output token, total_token, cost
-    //in next transaction trans_id will be increase group_id will be same
-
-    //if the user will be able to process further converison after the first transaction
-    //a more processing button which will allow, we will take last  output as input for next conversion task
-    //one more transaction will be stored for it in transaction id
-
-    //globalexception
-
-    //add to my AI
-
     final promptText = controller.text.trim();
     final fromList = _getSelectedList(fromSelection);
     final toList = _getSelectedList(toSelection);
 
+    // Basic Validation
     if (fromList.isEmpty) {
       _showSnack("Please select at least one input type (From)", isError: true);
-      return; // Stop execution
+      return;
     }
-
     if (toList.isEmpty) {
       _showSnack("Please select at least one output type (To)", isError: true);
-      return; // Stop execution
-    }
-
-    final isAudioToText = fromList.contains("Audio") && toList.contains("Text");
-    final isTextToImage = fromList.contains("Text") && toList.contains("Image");
-
-    if (isAudioToText && selectedAudioFile == null) {
-      _showSnack("Please upload an audio file first");
       return;
     }
-    if (!isAudioToText && promptText.isEmpty) {
-      _showSnack("Please enter a prompt");
-      return;
+
+    // --- LOGIC SWITCH BASED ON PROVIDER ---
+
+    // Check 1: Audio Providers (Assembly AI OR Local Whisper)
+    if (selectedProvider == LlmProvider.assemblyAi ||
+        selectedProvider == LlmProvider.localWhisper) {
+      if (selectedAudioFile == null) {
+        _showSnack(
+          "${selectedProvider.displayName} requires an audio file. Please upload one.",
+          isError: true,
+        );
+        return;
+      }
+      // Force internal mode flag
+      setState(() {
+        isAudioToTextMode = true;
+        currentOutputType = OutputType.text;
+      });
+    }
+    // Check 2: Stable Diffusion (Image Generation)
+    else if (selectedProvider == LlmProvider.stableDiffusion) {
+      if (promptText.isEmpty) {
+        _showSnack("Stable Diffusion requires a text prompt.", isError: true);
+        return;
+      }
+      // Force internal mode flag
+      setState(() {
+        isAudioToTextMode = false;
+        currentOutputType = OutputType.image;
+      });
+    }
+    // Check 3: Standard LLMs (Text/Chat)
+    else {
+      if (promptText.isEmpty && attachedFiles.isEmpty) {
+        _showSnack("Please enter a prompt or attach a file.", isError: true);
+        return;
+      }
+      setState(() {
+        isAudioToTextMode = false;
+        currentOutputType = OutputType.text;
+      });
     }
 
     setState(() {
       isLoading = true;
       output = null;
       imageOutput = null;
-      isAudioToTextMode = isAudioToText;
       currentPromptId = null;
     });
 
     // 1. PREPARE INPUT PARAMS
     Map<String, dynamic> inputParams = {};
-    if (isAudioToText) {
-      inputParams = audioConfig.toJson(); // Capture AssemblyAI settings
-    } else if (isTextToImage) {
-      inputParams = imageConfig.toJson(); // Capture Image settings
+    if (selectedProvider == LlmProvider.assemblyAi) {
+      inputParams = audioConfig.toJson();
+    } else if (selectedProvider == LlmProvider.stableDiffusion) {
+      inputParams = imageConfig.toJson();
+    } else if (selectedProvider == LlmProvider.localWhisper) {
+      inputParams = localWhisperConfig.toJson();
     }
 
-    // 2. SAVE INPUT (Pass the params)
+    // 2. SAVE INPUT
+    // Adjust 'prompt' for Audio if it's empty
+    final submissionPrompt =
+        (selectedProvider == LlmProvider.assemblyAi ||
+            selectedProvider == LlmProvider.localWhisper)
+        ? "Audio Upload: ${selectedAudioFile!.path.split('/').last}"
+        : promptText;
+
     final result = await _submissionService.validateAndSaveInput(
       userId: widget.userId,
       userEmail: widget.userEmail,
-      prompt: isAudioToText ? "Audio Upload" : promptText,
+      prompt: submissionPrompt,
       fromList: fromList,
       toList: toList,
-      inputParams: inputParams, // <--- NEW: Send config to backend
+      inputParams: inputParams,
     );
 
     if (!result.success) {
@@ -525,68 +580,78 @@ class _LandingScreenState extends State<LandingScreen> {
 
     String finalText = "";
     String modelUsed = "";
-    Map<String, dynamic> outputParams = {}; // <--- NEW: To store raw result
+    Map<String, dynamic> outputParams = {};
 
     try {
-      if (isAudioToText) {
-        // --- AUDIO MODE ---
+      // --- ROUTING LOGIC ---
+
+      if (selectedProvider == LlmProvider.assemblyAi) {
+        // === CASE A: ASSEMBLY AI (CLOUD) ===
         final Map<String, dynamic>? resultData = await _audioService
             .transcribeAudio(selectedAudioFile!, audioConfig);
 
         if (resultData != null) {
           finalText = TranscriptFormatter.formatTranscriptOutput(resultData);
-          outputParams =
-              resultData; // <--- Store full JSON (confidence, timestamps, etc)
+          outputParams = resultData;
         } else {
           finalText = "An unknown error occurred during transcription.";
         }
-        currentOutputType = OutputType.text;
         modelUsed = "AssemblyAI-STT";
-      } else if (isTextToImage) {
-        // --- IMAGE MODE ---
+      } else if (selectedProvider == LlmProvider.localWhisper) {
+        // === CASE B: LOCAL WHISPER (PYTHON) ===
+        // This calls the new method we added to AudioTranscriptionService
+        final result = await _audioService.transcribeWithLocalWhisper(
+          selectedAudioFile!,
+          localWhisperConfig,
+        );
+
+        if (result.containsKey('text')) {
+          finalText = result['text']; // Success
+          modelUsed = "Whisper-Local-Small";
+          outputParams = {
+            "method": "local_python_child_process",
+            "status": "completed",
+          };
+        } else {
+          finalText =
+              "Error: ${result['error']}\nDetails: ${result['details']}";
+          modelUsed = "error";
+          outputParams = result;
+        }
+      } else if (selectedProvider == LlmProvider.stableDiffusion) {
+        // === CASE C: STABLE DIFFUSION ===
         imageOutput = await _imageService.generateImage(
           promptText,
           imageConfig,
         );
-        currentOutputType = OutputType.image;
         modelUsed = "Stable-Diffusion-XL";
         finalText = "Generated ${imageOutput?.length} Images";
-
-        // For images, we might just store metadata since we can't store binary data easily in MongoDB JSON
         outputParams = {
           "count": imageOutput?.length ?? 0,
           "config_used": imageConfig.toJson(),
         };
       } else {
-        // --- TEXT MODE ---
+        // === CASE D: STANDARD LLMs (OpenRouter, OpenAI, etc) ===
         final aiResponse = await _aiService.generateResponse(
           promptText,
           selectedProvider,
         );
 
-        if (aiResponse is Map<String, dynamic>) {
-          finalText = aiResponse['content'] ?? aiResponse.toString();
-          modelUsed = aiResponse['model'] ?? selectedProvider.name;
-          outputParams = aiResponse; // <--- Store full raw AI response
-        } else {
-          finalText = aiResponse.toString();
-          modelUsed = selectedProvider.name;
-          outputParams = {"raw_response": finalText};
-        }
-        currentOutputType = OutputType.text;
+        finalText = aiResponse['content'] ?? aiResponse.toString();
+        modelUsed = aiResponse['model'] ?? selectedProvider.name;
+        outputParams = aiResponse;
       }
     } catch (e) {
       finalText = "Error: $e";
       modelUsed = "error";
-      currentOutputType = OutputType.text;
       outputParams = {"error": e.toString()};
     }
 
-    // 3. SAVE OUTPUT (Pass the params)
+    // 3. SAVE OUTPUT
     if (currentPromptId != null) {
       await _submissionService.saveOutput(
         promptId: currentPromptId!,
-        userId: widget.userId, // <--- Pass userId
+        userId: widget.userId,
         content: finalText,
         modelName: modelUsed,
         outputParams: outputParams,

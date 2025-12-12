@@ -3,9 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
-
-// TODO: Ensure this IP is correct!
-const String myServerUrl = "http://10.187.191.23:4000";
+// 1. IMPORT YOUR CONSTANTS
+import 'package:pina/screens/constants.dart';
 
 class AiCheckingScreen extends StatefulWidget {
   final int userId;
@@ -49,7 +48,11 @@ class _AiCheckingScreenState extends State<AiCheckingScreen> {
   // --- STEP 1: Upload File to Backend ---
   Future<int?> _saveInputToBackend() async {
     try {
-      var uri = Uri.parse("$myServerUrl/api/deepfake/save-input");
+      // 2. FIX: Use ApiConstants.authUrl (includes port 4000)
+      var uri = Uri.parse("${ApiConstants.authUrl}/api/deepfake/save-input");
+
+      print("Uploading to: $uri"); // Debug log
+
       var request = http.MultipartRequest('POST', uri);
 
       request.fields['userId'] = widget.userId.toString();
@@ -103,7 +106,6 @@ class _AiCheckingScreenState extends State<AiCheckingScreen> {
   }
 
   // --- STEP 3: Save Result to Backend (UPDATED) ---
-  // We now pass the apiMediaId to be stored as outputId
   Future<void> _saveOutputToBackend(
     int deepId,
     double score,
@@ -111,7 +113,9 @@ class _AiCheckingScreenState extends State<AiCheckingScreen> {
     String apiMediaId,
   ) async {
     try {
-      final url = Uri.parse("$myServerUrl/api/deepfake/save-output");
+      // 3. FIX: Use ApiConstants.authUrl here too
+      final url = Uri.parse("${ApiConstants.authUrl}/api/deepfake/save-output");
+
       await http.post(
         url,
         headers: {"Content-Type": "application/json"},
@@ -120,7 +124,7 @@ class _AiCheckingScreenState extends State<AiCheckingScreen> {
           "userId": widget.userId,
           "resultScore": score,
           "resultVerdict": verdict,
-          "outputId": apiMediaId, // Sending the ID from the API
+          "outputId": apiMediaId,
         }),
       );
       print("Backend Output Saved.");
@@ -161,7 +165,6 @@ class _AiCheckingScreenState extends State<AiCheckingScreen> {
       }
 
       // Extract the Media ID from the API response
-      // Structure is usually: { "media": { "id": "med_123...", ... } }
       String apiMediaId = "unknown";
       if (aiData['media'] != null && aiData['media']['id'] != null) {
         apiMediaId = aiData['media']['id'];
@@ -226,13 +229,6 @@ class _AiCheckingScreenState extends State<AiCheckingScreen> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                // Expanded(
-                //   child: ElevatedButton.icon(
-                //     onPressed: _isLoading ? null : () => _pickMedia(true),
-                //     icon: const Icon(Icons.videocam),
-                //     label: const Text("Pick Video"),
-                //   ),
-                // ),
               ],
             ),
             const SizedBox(height: 20),

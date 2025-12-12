@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+// 1. IMPORT YOUR CONSTANTS FILE
+import 'package:pina/screens/constants.dart';
+// Adjust path if needed (e.g., '../utils/constants.dart')
 
 class ReverseSearchScreen extends StatefulWidget {
   const ReverseSearchScreen({super.key});
@@ -21,8 +24,7 @@ class _ReverseSearchScreenState extends State<ReverseSearchScreen> {
   // ---------------------------------------------------------------------------
   // CONFIGURATION
   // ---------------------------------------------------------------------------
-  // UPDATE THIS IP: Use 10.0.2.2 for Android Emulator, or your LAN IP for physical device
-  final String _backendBaseUrl = 'http://10.223.120.23:4000';
+  // 2. REMOVED HARDCODED IP. We will use ApiConstants.authUrl below.
 
   final String _rapidApiKey =
       'd263ef909fmshb759fc69333fc69p193a4cjsn3930b099209b';
@@ -64,10 +66,8 @@ class _ReverseSearchScreenState extends State<ReverseSearchScreen> {
     });
 
     try {
-      // 1. Get User ID from Shared Preferences (Compatible with your main.dart)
+      // 1. Get User ID
       final prefs = await SharedPreferences.getInstance();
-
-      // Your main.dart saves it as int, but DB expects String. We convert it here.
       final int? userIdInt = prefs.getInt('userId');
       final String userId = userIdInt?.toString() ?? "unknown_user";
 
@@ -112,7 +112,12 @@ class _ReverseSearchScreenState extends State<ReverseSearchScreen> {
   // ---------------------------------------------------------------------------
 
   Future<int> _saveInputToBackend(String userId, File imageFile) async {
-    final uri = Uri.parse('$_backendBaseUrl/api/image-search/save-input');
+    // 3. FIX: Use ApiConstants.authUrl (which includes :4000)
+    final uri = Uri.parse(
+      '${ApiConstants.authUrl}/api/image-search/save-input',
+    );
+
+    print("Connecting to: $uri"); // Debug log
 
     // Convert image to Base64
     List<int> imageBytes = await imageFile.readAsBytes();
@@ -133,7 +138,10 @@ class _ReverseSearchScreenState extends State<ReverseSearchScreen> {
   }
 
   Future<void> _saveOutputToBackend(int ipId, dynamic apiResults) async {
-    final uri = Uri.parse('$_backendBaseUrl/api/image-search/save-output');
+    // 4. FIX: Use ApiConstants.authUrl here too
+    final uri = Uri.parse(
+      '${ApiConstants.authUrl}/api/image-search/save-output',
+    );
 
     final response = await http.post(
       uri,

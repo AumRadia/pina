@@ -2,10 +2,15 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:pina/models/assembly_config.dart';
-import 'package:pina/screens/constants.dart';
+import 'package:pina/models/local_whisper_config.dart';
+import 'package:pina/screens/constants.dart'; // Import your constants
 
 class AudioTranscriptionService {
   final String assemblyApiKey = ApiConstants.assemblyApiKey;
+
+  // =========================================================
+  // SECTION 1: AssemblyAI Cloud Methods (Existing)
+  // =========================================================
 
   Future<String?> _uploadToAssembly(String path) async {
     try {
@@ -33,13 +38,6 @@ class AudioTranscriptionService {
       print("=== Assembly AI Request ===");
       print("URL: $url");
       print("Body: ${jsonEncode(requestBody)}");
-      print("Config Language: ${config.languageCode}");
-      print("Config Punctuate: ${config.punctuate}");
-      print("Config Format Text: ${config.formatText}");
-      print("Config Redact PII: ${config.redactPii}");
-      print("Config PII Policies: ${config.redactPiiPolicies}");
-      print("Config Speaker Labels: ${config.speakerLabels}");
-      print("Config Filter Profanity: ${config.filterProfanity}");
 
       final res = await http.post(
         url,
@@ -49,10 +47,6 @@ class AudioTranscriptionService {
         },
         body: jsonEncode(requestBody),
       );
-
-      print("=== Assembly AI Response ===");
-      print("Status: ${res.statusCode}");
-      print("Body: ${res.body}");
 
       final responseData = jsonDecode(res.body);
 
@@ -88,7 +82,7 @@ class AudioTranscriptionService {
     File audioFile,
     AssemblyConfig config,
   ) async {
-    print("=== Starting Transcription ===");
+    print("=== Starting AssemblyAI Transcription ===");
     final uploadUrl = await _uploadToAssembly(audioFile.path);
     if (uploadUrl == null) return {"error": "Failed to upload file"};
 
@@ -111,5 +105,49 @@ class AudioTranscriptionService {
     if (data.containsKey("error")) return data;
 
     return data;
+  }
+
+  // =========================================================
+  // SECTION 2: Local Whisper Method (UPDATED)
+  // =========================================================
+
+  Future<Map<String, dynamic>> transcribeWithLocalWhisper(
+    File audioFile,
+    LocalWhisperConfig config, // <--- ADD CONFIG PARAMETER
+  ) async {
+    final String baseUrl = ApiConstants.baseUrl;
+    final uri = Uri.parse("$baseUrl:4000/whisper"); // Ensure port 4000
+
+    try {
+      print("=== Local Whisper: ${config.modelSize} | ${config.language} ===");
+
+      var request = http.MultipartRequest('POST', uri);
+
+      request.files.add(
+        await http.MultipartFile.fromPath('audio', audioFile.path),
+      );
+
+      // === ADD CONFIG FIELDS ===
+      request.fields['model'] = config.modelSize;
+      request.fields['language'] = config.language;
+      request.fields['task'] = config.translateToEnglish
+          ? 'translate'
+          : 'transcribe';
+      request.fields['fp16'] = config.useGpu.toString();
+
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        return {
+          "error": "Server error: ${response.statusCode}",
+          "details": response.body,
+        };
+      }
+    } catch (e) {
+      return {"error": "Connection failed", "details": e.toString()};
+    }
   }
 }

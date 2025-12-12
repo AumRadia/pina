@@ -3,7 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pina/screens/registration.dart'; // Import Registration Screen
 import 'package:pina/screens/trial.dart';
-import 'package:pina/screens/loginscreen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

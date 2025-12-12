@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart'; // Import this
+import 'package:shared_preferences/shared_preferences.dart';
+// 1. IMPORT YOUR CONSTANTS FILE (Adjust path if needed, e.g., '../utils/constants.dart')
+import 'package:pina/screens/constants.dart';
 
 class GDPRScannerScreen extends StatefulWidget {
   const GDPRScannerScreen({super.key});
@@ -19,39 +21,24 @@ class _GDPRScannerScreenState extends State<GDPRScannerScreen> {
   // Variable to store the real logged-in User ID
   int? _currentUserId;
 
-  // TODO: Replace with your actual Server URL
-  // Android Emulator: 'http://10.0.2.2:4000'
-  // Real Device: 'http://192.168.x.x:4000' (Your PC's local IP)
-  // Deployed: 'https://your-app.vercel.app'
-  final String _baseUrl = "http://10.187.191.23:4000";
+  // ❌ DELETED the hardcoded _baseUrl. We will use ApiConstants instead.
 
   @override
   void initState() {
     super.initState();
-    _loadUserData(); // <--- 1. Load User ID when screen opens
+    _loadUserData();
   }
 
   /// Retrieve the User ID stored by LoginScreen
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Debug: Print ALL stored keys and values
-    print("═══════════════════════════════════");
-    print("DEBUG: All SharedPreferences keys: ${prefs.getKeys()}");
+    // Debugging logs
     print("DEBUG: userId = ${prefs.getInt('userId')}");
-    print("DEBUG: userName = ${prefs.getString('userName')}");
-    print("DEBUG: userEmail = ${prefs.getString('userEmail')}");
-    print("═══════════════════════════════════");
 
     setState(() {
       _currentUserId = prefs.getInt('userId');
     });
-
-    if (_currentUserId == null) {
-      print("❌ No User ID found. User might not be logged in.");
-    } else {
-      print("✅ Loaded User ID: $_currentUserId");
-    }
   }
 
   /// PRIMARY METHOD: Call the Free API
@@ -69,7 +56,6 @@ class _GDPRScannerScreenState extends State<GDPRScannerScreen> {
     });
 
     try {
-      // API Endpoint (Free Public API)
       final apiUrl = Uri.parse(
         "https://www.gdprvalidator.eu/api/v1/scan/check?url=$url",
       );
@@ -94,7 +80,7 @@ class _GDPRScannerScreenState extends State<GDPRScannerScreen> {
           _result = resultData;
         });
 
-        // 2. Save result using the REAL User ID
+        // Save using the backend
         await _saveResultToBackend(resultData);
       } else {
         await _performLocalCheck(url);
@@ -147,20 +133,21 @@ class _GDPRScannerScreenState extends State<GDPRScannerScreen> {
     }
   }
 
-  /// 3. Save data to Node.js backend using the Logged-In User ID
+  /// 3. Save data to Node.js backend using ApiConstants
   Future<void> _saveResultToBackend(Map<String, dynamic> result) async {
-    // If we don't have a user ID, we can't associate the data
     if (_currentUserId == null) {
       print("Cannot save to DB: User ID is null (Not logged in?)");
       return;
     }
 
     try {
-      final uri = Uri.parse("$_baseUrl/api/gdpr/save");
+      // ✅ FIX: Use ApiConstants.authUrl because it includes port 4000
+      // If you use ApiConstants.baseUrl, it will fail because it's missing the port.
+      final String backendUrl = "${ApiConstants.authUrl}/api/gdpr/save";
+      final uri = Uri.parse(backendUrl);
 
       final body = json.encode({
-        "userId":
-            _currentUserId, // <--- Using the Real ID from SharedPreferences
+        "userId": _currentUserId,
         "url": result['url'],
         "score": result['score'],
         "sslSecure": result['ssl'],
@@ -168,7 +155,7 @@ class _GDPRScannerScreenState extends State<GDPRScannerScreen> {
         "cookieBannerFound": result['cookie_banner'],
       });
 
-      print("Saving to backend for User $_currentUserId...");
+      print("Saving to $backendUrl..."); // Debug log
 
       final response = await http.post(
         uri,
@@ -177,12 +164,12 @@ class _GDPRScannerScreenState extends State<GDPRScannerScreen> {
       );
 
       if (response.statusCode == 200) {
-        print("GDPR Scan saved successfully!");
+        print("✅ GDPR Scan saved successfully!");
       } else {
-        print("Failed to save: ${response.body}");
+        print("❌ Failed to save: ${response.body}");
       }
     } catch (e) {
-      print("Backend Connection Error: $e");
+      print("❌ Backend Connection Error: $e");
     }
   }
 
@@ -211,8 +198,6 @@ class _GDPRScannerScreenState extends State<GDPRScannerScreen> {
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  // We disable the button if the User ID hasn't loaded yet
-                  // to prevent saving data without an owner.
                   onPressed: (_isLoading || _currentUserId == null)
                       ? null
                       : _checkCompliance,
@@ -225,16 +210,6 @@ class _GDPRScannerScreenState extends State<GDPRScannerScreen> {
                       : const Text("Check Compliance"),
                 ),
               ),
-
-              // Optional: Helper text if ID is missing (for debugging)
-              if (_currentUserId == null)
-                const Padding(
-                  padding: EdgeInsets.only(top: 8.0),
-                  child: Text(
-                    "Loading User Session...",
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ),
 
               const SizedBox(height: 24),
               if (_errorMessage != null)

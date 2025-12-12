@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:pina/screens/constants.dart';
 import 'package:pina/screens/loginscreen.dart';
 import 'package:pina/screens/registration_step2.dart'; // Import Step 2
 

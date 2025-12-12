@@ -3,6 +3,7 @@ import 'package:pina/data/translation.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:pina/screens/ai_checking_screen.dart';
+import 'package:pina/screens/constants.dart';
 import 'package:pina/screens/explicit_content_check_screen.dart';
 import 'package:pina/screens/gdpr_scanner_screen.dart';
 import 'package:pina/screens/plagarism_check.dart';
@@ -10,7 +11,7 @@ import 'package:pina/screens/reverse_search_screen.dart';
 // Import Main Menu for the "Conversion" navigation
 import 'package:pina/screens/main_menu_screen.dart';
 
-const String baseUrl = "http://10.11.161.23:4000";
+const String baseUrl = "${ApiConstants.baseUrl}:4000";
 
 class HamburgerMenu extends StatelessWidget {
   // Added userId and userEmail to pass to MainMenuScreen during navigation
