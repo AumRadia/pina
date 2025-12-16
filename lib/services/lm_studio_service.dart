@@ -88,7 +88,8 @@ class LmStudioService {
   Future<Map<String, dynamic>> generateResponse(
     String prompt,
     LlmProvider selectedProvider, {
-    bool hasImages = false, // <--- NEW PARAMETER
+    bool hasImages = false,
+    double temperature = 0.7, // Accept temp here if needed in logic
   }) async {
     List<LlmProvider> providerQueue = [];
 
@@ -145,7 +146,11 @@ class LmStudioService {
           "🔄 Trying provider: ${provider.displayName} (${provider.name})...",
         );
 
-        var response = await _makeRequest(prompt: prompt, provider: provider);
+        var response = await _makeRequest(
+          prompt: prompt,
+          provider: provider,
+          temperature: temperature, // Pass it down
+        );
 
         if (response.statusCode >= 200 && response.statusCode < 300) {
           print("✅ Success with ${provider.displayName}!");
@@ -179,6 +184,7 @@ class LmStudioService {
   Future<http.Response> _makeRequest({
     required String prompt,
     required LlmProvider provider,
+    double temperature = 0.7,
   }) async {
     String finalPrompt = prompt;
 
@@ -204,14 +210,19 @@ class LmStudioService {
 
     String url = "";
     Map<String, String> headers = {'Content-Type': 'application/json'};
-    Map<String, dynamic> body = {"messages": messages, "stream": false};
+    Map<String, dynamic> body = {
+      "messages": messages,
+      "stream": false,
+      "temperature": temperature,
+    };
 
     switch (provider) {
       // --- LOCAL GEMMA ---
       case LlmProvider.localGemma:
         url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
         body['model'] = "gemma-3-1b";
-        body['temperature'] = 0.7;
+        // FIXED TYPO HERE:
+        body['temperature'] = temperature;
         break;
 
       // --- A SERIES ---

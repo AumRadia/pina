@@ -39,18 +39,18 @@ class SubmissionHandler {
     required String promptText,
     required File? audioFile,
     required bool hasImages,
-    required Map<String, bool> activeOptions, // <--- 1. NEW PARAMETER
+    required Map<String, bool> activeOptions,
     required AssemblyConfig assemblyConfig,
     required LocalWhisperConfig whisperConfig,
     required ImageGenerationConfig imageConfig,
-    // Inject services to keep them stateless
     required AudioTranscriptionService audioService,
     required ImageGenerationService imageService,
     required LmStudioService aiService,
+    required double temperature,
   }) async {
     try {
       // --- 2. BUILD THE MODIFIED PROMPT ---
-      // We process the checkbox map and append 'true' values to the prompt
+      // UNCOMMENTED LOGIC: Process checkbox map and append 'true' values to the prompt
       String finalPrompt = promptText;
       List<String> selectedFeatures = [];
 
@@ -61,7 +61,7 @@ class SubmissionHandler {
       });
 
       if (selectedFeatures.isNotEmpty) {
-        // Appends options like: "\n\n[Active Options: Simple Mode, Deep Search]"
+        // Appends options like: "\n\n[Active Options: Input Type: Text, Output Type: Audio]"
         finalPrompt += "\n\n[Active Options: ${selectedFeatures.join(', ')}]";
       }
       // ------------------------------------
@@ -132,6 +132,7 @@ class SubmissionHandler {
           finalPrompt,
           provider,
           hasImages: hasImages,
+          temperature: temperature,
         );
         return SubmissionResult(
           content: aiResponse['content'] ?? aiResponse.toString(),

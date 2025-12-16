@@ -41,6 +41,9 @@ class LandingScreen extends StatefulWidget {
 }
 
 class _LandingScreenState extends State<LandingScreen> {
+  // MASTER SOURCE OF TRUTH FOR TEMPERATURE
+  double _temperature = 0.7;
+
   final TextEditingController controller = TextEditingController();
 
   // Attachments
@@ -225,8 +228,10 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   // --- SUBMISSION LOGIC ---
-  Future<void> _submitData() async {
-    final promptText = controller.text.trim();
+  Future<void> _submitData({String? manualPrompt, double? tempOverride}) async {
+    // If manualPrompt is provided (Regeneration), use it. Otherwise use controller.
+    final promptText = manualPrompt ?? controller.text.trim();
+
     final fromList = _getSelectedList(fromSelection);
     final toList = _getSelectedList(toSelection);
 
@@ -259,19 +264,19 @@ class _LandingScreenState extends State<LandingScreen> {
       currentPromptId = null;
     });
 
-    // --- 3. GATHER CHECKBOX OPTIONS (NEW) ---
-    // We combine "From" and "To" selections into a single map
-    // so the SubmissionHandler can append them to the prompt.
-    Map<String, bool> activeOptions = {};
-
+    // --- 3. GATHER CHECKBOX OPTIONS (ENABLED NOW) ---
+    Map<String, bool> effectiveOptions = {};
     fromSelection.forEach((key, value) {
-      if (value) activeOptions["Input Type: $key"] = true;
+      if (value) effectiveOptions["Input Type: $key"] = true;
+    });
+    toSelection.forEach((key, value) {
+      if (value) effectiveOptions["Output Type: $key"] = true;
     });
 
-    toSelection.forEach((key, value) {
-      if (value) activeOptions["Output Type: $key"] = true;
-    });
-    // ----------------------------------------
+    // --- TEMPERATURE LOGIC ---
+    // Strictly use the slider variable
+    double effectiveTemperature = _temperature;
+    // ------------------------
 
     // 4. SAVE INPUT (Database)
     final inputParams = _getInputParams();
@@ -309,19 +314,20 @@ class _LandingScreenState extends State<LandingScreen> {
       return ['jpg', 'png', 'jpeg', 'webp', 'bmp'].contains(ext);
     });
 
-    // 6. EXECUTE LOGIC (Updated Call)
+    // 6. EXECUTE LOGIC
     final executionResult = await SubmissionHandler.processRequest(
       provider: selectedProvider,
       promptText: promptText,
       audioFile: selectedAudioFile,
       hasImages: hasImages,
-      activeOptions: activeOptions, // <--- PASSED HERE
+      activeOptions: effectiveOptions, // Sending the enabled checkboxes
       assemblyConfig: audioConfig,
       whisperConfig: localWhisperConfig,
       imageConfig: imageConfig,
       audioService: _audioService,
       imageService: _imageService,
       aiService: _aiService,
+      temperature: effectiveTemperature, // Sending the slider value
     );
 
     // 7. UPDATE UI WITH RESULTS
@@ -345,7 +351,30 @@ class _LandingScreenState extends State<LandingScreen> {
     setState(() => isLoading = false);
   }
 
-  // Helper getters for _submitData
+  // --- REGENERATION LOGIC ---
+  void _regenerateResponse() {
+    if (output == null || output!.isEmpty) return;
+
+    final originalPrompt = controller.text;
+    final previousOutput = output!;
+
+    final regenerationPrompt =
+        """
+$originalPrompt
+
+[PREVIOUS OUTPUT]:
+$previousOutput
+
+[INSTRUCTION]:
+Rewrite the previous answer to be clearer, more accurate, and more concise.
+Fix mistakes, remove fluff, and keep the same meaning.
+""";
+
+    // Call submit without overriding temp, so it uses the current slider value
+    _submitData(manualPrompt: regenerationPrompt);
+  }
+
+  // Helper getters
   bool _isAudioProvider(LlmProvider p) =>
       p == LlmProvider.assemblyAi || p == LlmProvider.localWhisper;
 
@@ -447,7 +476,7 @@ class _LandingScreenState extends State<LandingScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              onPressed: isLoading ? null : _submitData,
+              onPressed: isLoading ? null : () => _submitData(),
               child: isLoading
                   ? const CircularProgressIndicator(color: Colors.white)
                   : const Text("Submit", style: TextStyle(fontSize: 18)),
@@ -493,6 +522,8 @@ class _LandingScreenState extends State<LandingScreen> {
             _buildDataTypeSelections(),
             const SizedBox(height: 15),
 
+            _buildTemperatureSlider(),
+            const SizedBox(height: 15),
             ProviderSelectorWidget(
               selectedProvider: selectedProvider,
               onProviderChanged: (p) => setState(() => selectedProvider = p),
@@ -523,6 +554,9 @@ class _LandingScreenState extends State<LandingScreen> {
       ),
     );
   }
+
+  // ... (Rest of build widgets are unchanged from your last version) ...
+  // [Note: Keeping these standard widgets concise for brevity unless you need them reprinted]
 
   Widget _buildAttachmentsList() {
     return Column(
@@ -663,6 +697,60 @@ class _LandingScreenState extends State<LandingScreen> {
     );
   }
 
+  Widget _buildTemperatureSlider() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Row for Label + Question Mark
+            Row(
+              children: [
+                const Text(
+                  "Creativity",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(width: 5),
+                Tooltip(
+                  message:
+                      "Controls how 'random' or 'creative' the AI is.\n"
+                      "Low = Focused, factual, and consistent.\n"
+                      "High = Creative, diverse, and unpredictable.",
+                  triggerMode: TooltipTriggerMode.tap, // Tap to see on mobile
+                  showDuration: const Duration(seconds: 4),
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  textStyle: const TextStyle(color: Colors.white),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.help_outline,
+                    size: 18,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+            // Value Display
+            Text(_temperature.toStringAsFixed(1)),
+          ],
+        ),
+        Slider(
+          value: _temperature,
+          min: 0.1,
+          max: 1.5,
+          divisions: 14,
+          label: _temperature.toStringAsFixed(1),
+          activeColor: Colors.black,
+          onChanged: (val) => setState(() => _temperature = val),
+        ),
+      ],
+    );
+  }
+
   Widget _buildOutputSection() {
     if (currentOutputType == OutputType.image) {
       return GenerationOutputView(
@@ -696,16 +784,33 @@ class _LandingScreenState extends State<LandingScreen> {
               "Output:",
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
-            if (isAudioToTextMode && selectedAudioFile != null)
-              ElevatedButton.icon(
-                onPressed: _downloadTranscript,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                icon: const Icon(Icons.download, size: 18),
-                label: const Text("Download"),
-              ),
+            Row(
+              children: [
+                // REGENERATE BUTTON
+                if (!isLoading)
+                  TextButton.icon(
+                    onPressed: _regenerateResponse,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.orange[800],
+                    ),
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text("Regenerate"),
+                  ),
+
+                const SizedBox(width: 8),
+
+                if (isAudioToTextMode && selectedAudioFile != null)
+                  ElevatedButton.icon(
+                    onPressed: _downloadTranscript,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.download, size: 18),
+                    label: const Text("Download"),
+                  ),
+              ],
+            ),
           ],
         ),
         const SizedBox(height: 12),
