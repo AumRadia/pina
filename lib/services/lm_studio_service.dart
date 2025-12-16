@@ -1,9 +1,11 @@
-// lm_studio_service.dart
+//Aum
+//v1.3 added Image Skip logic for Local Gemma
 
 import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:pina/screens/constants.dart';
 
 // 1. Provider List
 enum LlmProvider {
@@ -17,8 +19,9 @@ enum LlmProvider {
   anthropic, // L2
   mistral, // L3
   deepSeek, // L4
+  localGemma, // <--- Local Text Model (LM Studio)
   assemblyAi, // Audio (Cloud)
-  localWhisper, // <--- NEW: Audio (Local)
+  localWhisper, // Audio (Local)
   stableDiffusion, // Image
 }
 
@@ -46,9 +49,11 @@ extension ProviderDisplay on LlmProvider {
         return "L3 (Mistral)";
       case LlmProvider.deepSeek:
         return "L4 (DeepSeek)";
+      case LlmProvider.localGemma:
+        return "Local Gemma (1B)";
       case LlmProvider.assemblyAi:
         return "Assembly AI (Audio)";
-      case LlmProvider.localWhisper: // <--- NEW CASE
+      case LlmProvider.localWhisper:
         return "Local Whisper";
       case LlmProvider.stableDiffusion:
         return "Stable Diffusion (Image)";
@@ -82,8 +87,9 @@ class LmStudioService {
   // --- MAIN GENERATION FUNCTION ---
   Future<Map<String, dynamic>> generateResponse(
     String prompt,
-    LlmProvider selectedProvider,
-  ) async {
+    LlmProvider selectedProvider, {
+    bool hasImages = false, // <--- NEW PARAMETER
+  }) async {
     List<LlmProvider> providerQueue = [];
 
     // 1. First Priority: The user selected provider
@@ -119,11 +125,19 @@ class LmStudioService {
     // --- EXECUTE QUEUE ---
     for (var provider in providerQueue) {
       // Skip Special Providers (Audio/Image) in this loop
-      // They are handled by dedicated services in landing.dart
       if (provider == LlmProvider.assemblyAi ||
-          provider == LlmProvider.localWhisper || // <--- NEW EXCLUSION
+          provider == LlmProvider.localWhisper ||
           provider == LlmProvider.stableDiffusion) {
         continue;
+      }
+
+      // --- NEW SKIP LOGIC ---
+      // If user selected Local Gemma but has attached images, skip it.
+      if (provider == LlmProvider.localGemma && hasImages) {
+        print(
+          "⚠️ Skipping ${provider.displayName} (Text-Only) because images are attached.",
+        );
+        continue; // Moves to the next provider in the queue
       }
 
       try {
@@ -193,6 +207,13 @@ class LmStudioService {
     Map<String, dynamic> body = {"messages": messages, "stream": false};
 
     switch (provider) {
+      // --- LOCAL GEMMA ---
+      case LlmProvider.localGemma:
+        url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
+        body['model'] = "gemma-3-1b";
+        body['temperature'] = 0.7;
+        break;
+
       // --- A SERIES ---
       case LlmProvider.openRouter:
         url = "https://openrouter.ai/api/v1/chat/completions";
@@ -262,7 +283,7 @@ class LmStudioService {
 
       // --- SPECIAL PROVIDERS ---
       case LlmProvider.assemblyAi:
-      case LlmProvider.localWhisper: // <--- NEW CASE ADDED
+      case LlmProvider.localWhisper:
       case LlmProvider.stableDiffusion:
         throw UnimplementedError(
           "AssemblyAI, LocalWhisper, and StableDiffusion are handled by dedicated services, not via _makeRequest.",
