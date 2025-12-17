@@ -43,6 +43,7 @@ class LandingScreen extends StatefulWidget {
 class _LandingScreenState extends State<LandingScreen> {
   // MASTER SOURCE OF TRUTH FOR TEMPERATURE
   double _temperature = 0.7;
+  String _lastSubmittedPrompt = "";
 
   final TextEditingController controller = TextEditingController();
 
@@ -228,9 +229,15 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   // --- SUBMISSION LOGIC ---
-  Future<void> _submitData({String? manualPrompt, double? tempOverride}) async {
-    // If manualPrompt is provided (Regeneration), use it. Otherwise use controller.
+  Future<void> _submitData({
+    String? manualPrompt,
+    bool isRegeneration = false,
+  }) async {
     final promptText = manualPrompt ?? controller.text.trim();
+
+    if (manualPrompt == null) {
+      _lastSubmittedPrompt = controller.text.trim();
+    }
 
     final fromList = _getSelectedList(fromSelection);
     final toList = _getSelectedList(toSelection);
@@ -261,10 +268,12 @@ class _LandingScreenState extends State<LandingScreen> {
       isLoading = true;
       output = null;
       imageOutput = null;
-      currentPromptId = null;
+      if (!isRegeneration) {
+        currentPromptId = null;
+      }
     });
 
-    // --- 3. GATHER CHECKBOX OPTIONS (ENABLED NOW) ---
+    // --- 3. GATHER CHECKBOX OPTIONS ---
     Map<String, bool> effectiveOptions = {};
     fromSelection.forEach((key, value) {
       if (value) effectiveOptions["Input Type: $key"] = true;
@@ -273,40 +282,41 @@ class _LandingScreenState extends State<LandingScreen> {
       if (value) effectiveOptions["Output Type: $key"] = true;
     });
 
-    // --- TEMPERATURE LOGIC ---
-    // Strictly use the slider variable
     double effectiveTemperature = _temperature;
-    // ------------------------
 
-    // 4. SAVE INPUT (Database)
-    final inputParams = _getInputParams();
-    final submissionPrompt = _isAudioProvider(selectedProvider)
-        ? "Audio Upload: ${selectedAudioFile!.path.split('/').last}"
-        : promptText;
+    // 4. SAVE INPUT (Database) - SKIP IF REGENERATING
+    if (!isRegeneration) {
+      final inputParams = _getInputParams();
+      inputParams['temperature'] = effectiveTemperature;
 
-    final result = await _submissionService.validateAndSaveInput(
-      userId: widget.userId,
-      userEmail: widget.userEmail,
-      prompt: submissionPrompt,
-      fromList: fromList,
-      toList: toList,
-      inputParams: inputParams,
-    );
+      final submissionPrompt = _isAudioProvider(selectedProvider)
+          ? "Audio Upload: ${selectedAudioFile!.path.split('/').last}"
+          : promptText;
 
-    if (!result.success) {
-      setState(() => isLoading = false);
-      if (result.statusCode == 401) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-        );
-      } else {
-        _showSnack(result.errorMessage!, isError: true);
+      final result = await _submissionService.validateAndSaveInput(
+        userId: widget.userId,
+        userEmail: widget.userEmail,
+        prompt: submissionPrompt,
+        fromList: fromList,
+        toList: toList,
+        inputParams: inputParams,
+      );
+
+      if (!result.success) {
+        setState(() => isLoading = false);
+        if (result.statusCode == 401) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+          );
+        } else {
+          _showSnack(result.errorMessage!, isError: true);
+        }
+        return;
       }
-      return;
-    }
 
-    setState(() => currentPromptId = result.promptId);
+      setState(() => currentPromptId = result.promptId);
+    }
 
     // 5. CHECK FOR IMAGES
     bool hasImages = attachedFiles.any((f) {
@@ -320,14 +330,15 @@ class _LandingScreenState extends State<LandingScreen> {
       promptText: promptText,
       audioFile: selectedAudioFile,
       hasImages: hasImages,
-      activeOptions: effectiveOptions, // Sending the enabled checkboxes
+      attachedFiles: attachedFiles,
+      activeOptions: effectiveOptions,
       assemblyConfig: audioConfig,
       whisperConfig: localWhisperConfig,
       imageConfig: imageConfig,
       audioService: _audioService,
       imageService: _imageService,
       aiService: _aiService,
-      temperature: effectiveTemperature, // Sending the slider value
+      temperature: effectiveTemperature,
     );
 
     // 7. UPDATE UI WITH RESULTS
@@ -355,7 +366,9 @@ class _LandingScreenState extends State<LandingScreen> {
   void _regenerateResponse() {
     if (output == null || output!.isEmpty) return;
 
-    final originalPrompt = controller.text;
+    final originalPrompt = _lastSubmittedPrompt.isNotEmpty
+        ? _lastSubmittedPrompt
+        : controller.text;
     final previousOutput = output!;
 
     final regenerationPrompt =
@@ -370,8 +383,7 @@ Rewrite the previous answer to be clearer, more accurate, and more concise.
 Fix mistakes, remove fluff, and keep the same meaning.
 """;
 
-    // Call submit without overriding temp, so it uses the current slider value
-    _submitData(manualPrompt: regenerationPrompt);
+    _submitData(manualPrompt: regenerationPrompt, isRegeneration: true);
   }
 
   // Helper getters
@@ -555,9 +567,6 @@ Fix mistakes, remove fluff, and keep the same meaning.
     );
   }
 
-  // ... (Rest of build widgets are unchanged from your last version) ...
-  // [Note: Keeping these standard widgets concise for brevity unless you need them reprinted]
-
   Widget _buildAttachmentsList() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -704,7 +713,6 @@ Fix mistakes, remove fluff, and keep the same meaning.
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Row for Label + Question Mark
             Row(
               children: [
                 const Text(
@@ -717,7 +725,7 @@ Fix mistakes, remove fluff, and keep the same meaning.
                       "Controls how 'random' or 'creative' the AI is.\n"
                       "Low = Focused, factual, and consistent.\n"
                       "High = Creative, diverse, and unpredictable.",
-                  triggerMode: TooltipTriggerMode.tap, // Tap to see on mobile
+                  triggerMode: TooltipTriggerMode.tap,
                   showDuration: const Duration(seconds: 4),
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -734,7 +742,6 @@ Fix mistakes, remove fluff, and keep the same meaning.
                 ),
               ],
             ),
-            // Value Display
             Text(_temperature.toStringAsFixed(1)),
           ],
         ),
@@ -786,7 +793,6 @@ Fix mistakes, remove fluff, and keep the same meaning.
             ),
             Row(
               children: [
-                // REGENERATE BUTTON
                 if (!isLoading)
                   TextButton.icon(
                     onPressed: _regenerateResponse,

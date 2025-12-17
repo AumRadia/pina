@@ -14,4 +14,6 @@ class AttachedFile {
     required this.sizeBytes,
     this.extractedText,
   });
+
+  String get path => file.path;
 }

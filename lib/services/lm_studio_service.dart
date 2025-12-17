@@ -1,8 +1,9 @@
 //Aum
-//v1.3 added Image Skip logic for Local Gemma
+//v1.5 added Qwen Support
 
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io'; // Required for File handling
 import 'package:http/http.dart' as http;
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pina/screens/constants.dart';
@@ -16,10 +17,13 @@ enum LlmProvider {
   orqAi, // A5
   togetherAi, // A6
   openAI, // L1
-  anthropic, // L2
+  anthropic,
+  anthropicHaiku, // L2
   mistral, // L3
   deepSeek, // L4
-  localGemma, // <--- Local Text Model (LM Studio)
+  localGemma, // Text-Only (1B)
+  localGemma4b, // Gemma 3 4B (Vision)
+  qwen, // <--- NEW: Local Qwen Support
   assemblyAi, // Audio (Cloud)
   localWhisper, // Audio (Local)
   stableDiffusion, // Image
@@ -45,12 +49,18 @@ extension ProviderDisplay on LlmProvider {
         return "L1 (OpenAI)";
       case LlmProvider.anthropic:
         return "L2 (Anthropic)";
+      case LlmProvider.anthropicHaiku:
+        return "L2.5 (Claude Haiku)";
       case LlmProvider.mistral:
         return "L3 (Mistral)";
       case LlmProvider.deepSeek:
         return "L4 (DeepSeek)";
       case LlmProvider.localGemma:
         return "Local Gemma (1B)";
+      case LlmProvider.localGemma4b:
+        return "Local Gemma 3 (4B - Vision)";
+      case LlmProvider.qwen: // <--- NEW CASE
+        return "Local Qwen";
       case LlmProvider.assemblyAi:
         return "Assembly AI (Audio)";
       case LlmProvider.localWhisper:
@@ -89,7 +99,8 @@ class LmStudioService {
     String prompt,
     LlmProvider selectedProvider, {
     bool hasImages = false,
-    double temperature = 0.7, // Accept temp here if needed in logic
+    List<File>? imageFiles, // Accept image files
+    double temperature = 0.7,
   }) async {
     List<LlmProvider> providerQueue = [];
 
@@ -109,6 +120,7 @@ class LmStudioService {
     final List<LlmProvider> lSeries = [
       LlmProvider.openAI,
       LlmProvider.anthropic,
+      LlmProvider.anthropicHaiku,
       LlmProvider.mistral,
       LlmProvider.deepSeek,
     ];
@@ -132,13 +144,16 @@ class LmStudioService {
         continue;
       }
 
-      // --- NEW SKIP LOGIC ---
-      // If user selected Local Gemma but has attached images, skip it.
-      if (provider == LlmProvider.localGemma && hasImages) {
+      // --- SKIP LOGIC ---
+      // If user selected Local Gemma (1B) or Qwen (if text only) but has attached images, skip it.
+      // BUT if they selected Gemma 4B (Vision), do NOT skip.
+      if ((provider == LlmProvider.localGemma ||
+              provider == LlmProvider.qwen) &&
+          hasImages) {
         print(
-          "⚠️ Skipping ${provider.displayName} (Text-Only) because images are attached.",
+          "⚠️ Skipping ${provider.displayName} because images are attached (Text-Only model).",
         );
-        continue; // Moves to the next provider in the queue
+        continue; // Moves to the next provider
       }
 
       try {
@@ -149,7 +164,10 @@ class LmStudioService {
         var response = await _makeRequest(
           prompt: prompt,
           provider: provider,
-          temperature: temperature, // Pass it down
+          temperature: temperature,
+          imageFiles: (provider == LlmProvider.localGemma4b)
+              ? imageFiles
+              : null, // Pass images only if supported (currently only configured for Gemma 4B)
         );
 
         if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -185,6 +203,7 @@ class LmStudioService {
     required String prompt,
     required LlmProvider provider,
     double temperature = 0.7,
+    List<File>? imageFiles, // Accept images
   }) async {
     String finalPrompt = prompt;
 
@@ -206,7 +225,37 @@ class LmStudioService {
         messages.add({"role": role, "content": content});
       }
     }
-    messages.add({"role": "user", "content": finalPrompt});
+
+    // --- CONSTRUCT CURRENT MESSAGE (TEXT + IMAGES) ---
+    // Only construct Vision payload if images exist AND provider is Gemma 4B (Vision)
+    if (imageFiles != null &&
+        imageFiles.isNotEmpty &&
+        provider == LlmProvider.localGemma4b) {
+      List<Map<String, dynamic>> contentParts = [
+        {"type": "text", "text": finalPrompt},
+      ];
+
+      for (var file in imageFiles) {
+        try {
+          final bytes = await file.readAsBytes();
+          final base64Image = base64Encode(bytes);
+          contentParts.add({
+            "type": "image_url",
+            "image_url": {
+              // Standard OpenAI/LM Studio Vision format
+              "url": "data:image/jpeg;base64,$base64Image",
+            },
+          });
+        } catch (e) {
+          print("Error encoding image: $e");
+        }
+      }
+
+      messages.add({"role": "user", "content": contentParts});
+    } else {
+      // Standard Text-Only Message
+      messages.add({"role": "user", "content": finalPrompt});
+    }
 
     String url = "";
     Map<String, String> headers = {'Content-Type': 'application/json'};
@@ -217,12 +266,22 @@ class LmStudioService {
     };
 
     switch (provider) {
-      // --- LOCAL GEMMA ---
+      // --- LOCAL MODELS (LM Studio) ---
       case LlmProvider.localGemma:
         url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
         body['model'] = "gemma-3-1b";
-        // FIXED TYPO HERE:
-        body['temperature'] = temperature;
+        break;
+
+      case LlmProvider.localGemma4b:
+        url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
+        body['model'] = "gemma-3-4b";
+        break;
+
+      case LlmProvider.qwen: // <--- NEW CASE: QWEN
+        url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
+        // NOTE: Ensure this ID matches the loaded model in LM Studio exactly
+        // e.g., "qwen-2.5-7b-instruct" or "qwen-1.5-14b-chat"
+        body['model'] = "qqwen2-vl-2b-instruct";
         break;
 
       // --- A SERIES ---
@@ -273,10 +332,16 @@ class LmStudioService {
         break;
 
       case LlmProvider.anthropic:
+      case LlmProvider.anthropicHaiku:
         url = "https://api.anthropic.com/v1/messages";
         headers['x-api-key'] = _anthropicKey;
         headers['anthropic-version'] = '2023-06-01';
-        body['model'] = "claude-3-opus-20240229";
+
+        // Dynamic Model Selection
+        body['model'] = (provider == LlmProvider.anthropicHaiku)
+            ? "claude-3-haiku-20240307" // Cheap Model
+            : "claude-3-opus-20240229"; // Expensive Model
+
         body['max_tokens'] = 1024;
         break;
 
@@ -308,7 +373,7 @@ class LmStudioService {
     );
   }
 
-  // ... (Rest of the class methods remain unchanged) ...
+  // --- RESPONSE PARSING ---
   Map<String, dynamic> _parseResponse(
     http.Response response, {
     required String originalPrompt,
@@ -342,6 +407,7 @@ class LmStudioService {
     };
   }
 
+  // --- RAG & HISTORY HELPERS ---
   Future<void> addDocumentToRAG(String text) async {
     _uploadedDocumentContext = text;
     await _box.put('current_document_text', text);

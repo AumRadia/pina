@@ -6,6 +6,7 @@ import 'package:pina/services/image_generation_service.dart';
 import 'package:pina/models/assembly_config.dart';
 import 'package:pina/models/local_whisper_config.dart';
 import 'package:pina/models/image_generation_config.dart';
+import 'package:pina/models/attached_file.dart';
 import 'package:pina/utils/transcript_formatter.dart';
 
 // Simple class to hold the result so we don't return messy Maps
@@ -39,6 +40,7 @@ class SubmissionHandler {
     required String promptText,
     required File? audioFile,
     required bool hasImages,
+    required List<AttachedFile> attachedFiles,
     required Map<String, bool> activeOptions,
     required AssemblyConfig assemblyConfig,
     required LocalWhisperConfig whisperConfig,
@@ -50,7 +52,7 @@ class SubmissionHandler {
   }) async {
     try {
       // --- 2. BUILD THE MODIFIED PROMPT ---
-      // UNCOMMENTED LOGIC: Process checkbox map and append 'true' values to the prompt
+      // Process checkbox map and append 'true' values to the prompt
       String finalPrompt = promptText;
       List<String> selectedFeatures = [];
 
@@ -125,15 +127,34 @@ class SubmissionHandler {
           isImage: true,
         );
       }
-      // === CASE D: STANDARD LLMs ===
+      // === CASE D: STANDARD LLMs (Including Qwen) ===
       else {
+        // Prepare image files list for Vision models (like Gemma 4B)
+        List<File> imageFiles = [];
+        if (hasImages) {
+          imageFiles = attachedFiles
+              .where(
+                (f) => [
+                  'jpg',
+                  'png',
+                  'jpeg',
+                  'webp',
+                  'bmp',
+                ].contains(f.extension.toLowerCase()),
+              )
+              .map((f) => File(f.path))
+              .toList();
+        }
+
         // Use finalPrompt here for the LLM
         final aiResponse = await aiService.generateResponse(
           finalPrompt,
           provider,
           hasImages: hasImages,
+          imageFiles: imageFiles, // Passing actual image files if supported
           temperature: temperature,
         );
+
         return SubmissionResult(
           content: aiResponse['content'] ?? aiResponse.toString(),
           modelName: aiResponse['model'] ?? provider.name,
