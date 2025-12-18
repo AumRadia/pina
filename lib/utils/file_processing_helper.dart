@@ -23,7 +23,8 @@ class FileProcessingHelper {
         allowedExtensions: [
           'txt', 'md', 'json', 'pdf', 'docx', // Docs
           'jpg', 'jpeg', 'png', 'webp', // Images
-          'mp4', 'mov', 'avi', 'mp3', // Media
+          // UPDATED MEDIA LIST (Added wav, m4a, mkv, webm):
+          'mp4', 'mov', 'avi', 'mp3', 'wav', 'm4a', 'mkv', 'webm',
         ],
       );
 
@@ -42,7 +43,6 @@ class FileProcessingHelper {
 
         // 3. CHECK: Individual File Size > 100MB
         if (platformFile.size > 100 * 1024 * 1024) {
-          // Skip this file but continue loop
           continue;
         }
 
@@ -85,11 +85,7 @@ class FileProcessingHelper {
         tempTotalSize += platformFile.size;
       }
 
-      return {
-        'files': newFiles,
-        'warning':
-            warningMessage, // Non-critical warning (e.g. stopped at 5 files)
-      };
+      return {'files': newFiles, 'warning': warningMessage};
     } catch (e) {
       return {'error': "Error picking files: $e"};
     }

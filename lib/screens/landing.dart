@@ -1,3 +1,4 @@
+//
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:typed_data';
@@ -86,8 +87,20 @@ class _LandingScreenState extends State<LandingScreen> {
   Map<String, bool> toSelection = {};
 
   // Audio-specific
+  // This is now derived from attachedFiles
   File? selectedAudioFile;
   bool isAudioToTextMode = false;
+
+  final List<String> _audioExtensions = [
+    'mp3',
+    'wav',
+    'm4a',
+    'mp4',
+    'mov',
+    'mkv',
+    'avi',
+    'webm',
+  ];
 
   @override
   void initState() {
@@ -118,7 +131,7 @@ class _LandingScreenState extends State<LandingScreen> {
   int get currentTotalSize =>
       attachedFiles.fold(0, (sum, f) => sum + f.sizeBytes);
 
-  // --- FILE PICKER ---
+  // --- FILE PICKER (Unified) ---
   Future<void> _pickFiles() async {
     setState(() => isLoading = true);
 
@@ -139,6 +152,7 @@ class _LandingScreenState extends State<LandingScreen> {
       setState(() {
         attachedFiles.addAll(newFiles);
       });
+      _checkForAudioFiles(); // Check if user uploaded an audio file
       _updateAiContext();
     }
 
@@ -149,7 +163,27 @@ class _LandingScreenState extends State<LandingScreen> {
 
   void _removeFile(int index) {
     setState(() => attachedFiles.removeAt(index));
+    _checkForAudioFiles(); // Re-check audio state
     _updateAiContext();
+  }
+
+  // Detects if any attached file is audio and sets selectedAudioFile
+  void _checkForAudioFiles() {
+    File? foundAudio;
+    for (var file in attachedFiles) {
+      if (_audioExtensions.contains(file.extension.toLowerCase())) {
+        foundAudio = File(file.path);
+        break; // Use the first found audio file
+      }
+    }
+
+    setState(() {
+      selectedAudioFile = foundAudio;
+      // Auto-update UI mode if audio is detected
+      if (selectedAudioFile != null) {
+        if (!fromSelection['Audio']!) fromSelection['Audio'] = true;
+      }
+    });
   }
 
   Future<void> _updateAiContext() async {
@@ -171,26 +205,6 @@ class _LandingScreenState extends State<LandingScreen> {
       }
     }
     await _aiService.addDocumentToRAG(combinedContext.toString());
-  }
-
-  // --- AUDIO PICKER ---
-  Future<void> pickAudioFile() async {
-    final file = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: [
-        "mp3",
-        "wav",
-        "m4a",
-        "mp4",
-        "mov",
-        "mkv",
-        "avi",
-        "webm",
-      ],
-    );
-    if (file != null) {
-      setState(() => selectedAudioFile = File(file.files.single.path!));
-    }
   }
 
   // --- DIALOGS ---
@@ -225,10 +239,13 @@ class _LandingScreenState extends State<LandingScreen> {
         setState(() => localWhisperConfig = result);
         _showSnack("Local Whisper settings updated");
       }
+    } else {
+      // Fallback or generic audio settings could go here
+      _showSnack("Select an Audio Provider to configure settings.");
     }
   }
 
-  // --- SUBMISSION LOGIC ---
+  // --- SUBMISSION LOGIC (UPDATED) ---
   Future<void> _submitData({
     String? manualPrompt,
     bool isRegeneration = false,
@@ -289,7 +306,8 @@ class _LandingScreenState extends State<LandingScreen> {
       final inputParams = _getInputParams();
       inputParams['temperature'] = effectiveTemperature;
 
-      final submissionPrompt = _isAudioProvider(selectedProvider)
+      final submissionPrompt =
+          _isAudioProvider(selectedProvider) && selectedAudioFile != null
           ? "Audio Upload: ${selectedAudioFile!.path.split('/').last}"
           : promptText;
 
@@ -318,7 +336,7 @@ class _LandingScreenState extends State<LandingScreen> {
       setState(() => currentPromptId = result.promptId);
     }
 
-    // 5. CHECK FOR IMAGES
+    // 5. CHECK FOR IMAGES (Logic handled inside Service for AttachedFiles)
     bool hasImages = attachedFiles.any((f) {
       final ext = f.extension.toLowerCase();
       return ['jpg', 'png', 'jpeg', 'webp', 'bmp'].contains(ext);
@@ -328,7 +346,7 @@ class _LandingScreenState extends State<LandingScreen> {
     final executionResult = await SubmissionHandler.processRequest(
       provider: selectedProvider,
       promptText: promptText,
-      audioFile: selectedAudioFile,
+      audioFile: selectedAudioFile, // Now populated by _checkForAudioFiles
       hasImages: hasImages,
       attachedFiles: attachedFiles,
       activeOptions: effectiveOptions,
@@ -349,6 +367,7 @@ class _LandingScreenState extends State<LandingScreen> {
     }
 
     // 8. SAVE OUTPUT (Database)
+    // --- UPDATED: Pass errorLogs here ---
     if (currentPromptId != null) {
       await _submissionService.saveOutput(
         promptId: currentPromptId!,
@@ -356,6 +375,7 @@ class _LandingScreenState extends State<LandingScreen> {
         content: executionResult.content,
         modelName: executionResult.modelName,
         outputParams: executionResult.metaData,
+        errorLogs: executionResult.errorLogs, // <--- PASSED HERE
       );
     }
 
@@ -391,9 +411,10 @@ Fix mistakes, remove fluff, and keep the same meaning.
       p == LlmProvider.assemblyAi || p == LlmProvider.localWhisper;
 
   void _prepareUIForSubmission() {
-    if (_isAudioProvider(selectedProvider)) {
+    // Logic updated to respect detected files regardless of provider selection
+    if (_isAudioProvider(selectedProvider) || selectedAudioFile != null) {
       setState(() {
-        isAudioToTextMode = true;
+        isAudioToTextMode = true; // Enable audio UI features like download
         currentOutputType = OutputType.text;
       });
     } else if (selectedProvider == LlmProvider.stableDiffusion) {
@@ -526,7 +547,8 @@ Fix mistakes, remove fluff, and keep the same meaning.
               const SizedBox(height: 10),
             ],
 
-            if (fromSelection["Audio"] == true) ...[
+            // Updated Audio Section: Only shows settings if audio is detected
+            if (selectedAudioFile != null) ...[
               _buildAudioSection(),
               const SizedBox(height: 15),
             ],
@@ -560,7 +582,7 @@ Fix mistakes, remove fluff, and keep the same meaning.
         prefixIcon: const Icon(Icons.search),
         suffixIcon: IconButton(
           icon: const Icon(Icons.add_circle_outline, color: Colors.blue),
-          onPressed: _pickFiles,
+          onPressed: _pickFiles, // Unified picker
           tooltip: "Add Files (Max 5)",
         ),
       ),
@@ -594,8 +616,9 @@ Fix mistakes, remove fluff, and keep the same meaning.
                   Icon(
                     ['jpg', 'png', 'jpeg'].contains(file.extension)
                         ? Icons.image
-                        : ['mp4', 'mov', 'avi'].contains(file.extension)
-                        ? Icons.videocam
+                        : _audioExtensions.contains(file.extension)
+                        ? Icons
+                              .audiotrack // Changed icon for audio
                         : Icons.description,
                     size: 16,
                     color: Colors.black54,
@@ -633,37 +656,32 @@ Fix mistakes, remove fluff, and keep the same meaning.
     );
   }
 
+  // Simplified Audio Section: No Upload Button
   Widget _buildAudioSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Expanded(
-              child: ElevatedButton(
-                onPressed: pickAudioFile,
-                child: const Text("Upload Audio File"),
+              child: Text(
+                "Audio: ${selectedAudioFile!.path.split('/').last}",
+                style: const TextStyle(fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            if (selectedAudioFile != null) ...[
-              const SizedBox(width: 8),
-              ElevatedButton.icon(
-                onPressed: _showAudioConfig,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                ),
-                icon: const Icon(Icons.settings),
-                label: const Text("Settings"),
+            ElevatedButton.icon(
+              onPressed: _showAudioConfig,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
               ),
-            ],
+              icon: const Icon(Icons.settings),
+              label: const Text("Settings"),
+            ),
           ],
         ),
-        if (selectedAudioFile != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text("Selected: ${selectedAudioFile!.path.split('/').last}"),
-          ),
       ],
     );
   }

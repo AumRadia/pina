@@ -1,3 +1,5 @@
+//
+//
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:pina/services/lm_studio_service.dart';
@@ -16,6 +18,8 @@ class SubmissionResult {
   final Map<String, dynamic> metaData;
   final List<Uint8List>? images;
   final bool isImage;
+  // --- NEW FIELD ---
+  final List<dynamic>? errorLogs;
 
   SubmissionResult({
     required this.content,
@@ -23,6 +27,7 @@ class SubmissionResult {
     required this.metaData,
     this.images,
     this.isImage = false,
+    this.errorLogs, // Add to constructor
   });
 
   factory SubmissionResult.error(String error) {
@@ -30,6 +35,7 @@ class SubmissionResult {
       content: "Error: $error",
       modelName: "error",
       metaData: {"error": error},
+      errorLogs: [], // Default empty logs on critical error
     );
   }
 }
@@ -83,14 +89,24 @@ class SubmissionHandler {
             content: TranscriptFormatter.formatTranscriptOutput(resultData),
             modelName: "AssemblyAI-STT",
             metaData: resultData,
+            errorLogs: [], // No errors on success
           );
         } else {
-          return SubmissionResult.error(
-            resultData?['error'] ?? "Unknown Error",
+          // Return the specific error log
+          return SubmissionResult(
+            content: "Error",
+            modelName: "AssemblyAI",
+            metaData: {},
+            errorLogs: [
+              {
+                'provider': 'AssemblyAI',
+                'error': resultData?['error'] ?? "Unknown Error",
+              },
+            ],
           );
         }
       }
-      // === CASE B: LOCAL WHISPER ===
+      // === CASE B: LOCAL WHISPER (CLI) ===
       else if (provider == LlmProvider.localWhisper) {
         if (audioFile == null)
           return SubmissionResult.error("No audio file provided");
@@ -103,18 +119,47 @@ class SubmissionHandler {
         if (result.containsKey('text')) {
           return SubmissionResult(
             content: result['text'],
-            modelName: "Whisper-Local",
+            modelName: "Whisper-Local-CLI",
             metaData: {"status": "completed"},
+            errorLogs: [],
           );
         } else {
-          return SubmissionResult.error(
-            "${result['error']} ${result['details'] ?? ''}",
+          return SubmissionResult(
+            content: "Error",
+            modelName: "Whisper-Local-CLI",
+            metaData: {},
+            errorLogs: [
+              {
+                'provider': 'LocalWhisper',
+                'error': "${result['error']} ${result['details'] ?? ''}",
+              },
+            ],
           );
         }
       }
-      // === CASE C: STABLE DIFFUSION (IMAGE) ===
+      // === CASE C: DISTIL WHISPER (LM Studio API) ===
+      else if (provider == LlmProvider.distilWhisper) {
+        if (audioFile == null)
+          return SubmissionResult.error("No audio file provided");
+
+        // We use aiService here because logic is encapsulated in LmStudioService
+        final aiResponse = await aiService.generateResponse(
+          finalPrompt,
+          provider,
+          audioFile: audioFile,
+          whisperConfig: whisperConfig,
+          assemblyConfig: assemblyConfig,
+        );
+
+        return SubmissionResult(
+          content: aiResponse['content'] ?? "No transcription returned",
+          modelName: aiResponse['model'] ?? "Distil-Whisper",
+          metaData: aiResponse,
+          errorLogs: aiResponse['errorLogs'] ?? [],
+        );
+      }
+      // === CASE D: STABLE DIFFUSION (IMAGE) ===
       else if (provider == LlmProvider.stableDiffusion) {
-        // Use finalPrompt here so image gen respects options too
         final images = await imageService.generateImage(
           finalPrompt,
           imageConfig,
@@ -125,9 +170,10 @@ class SubmissionHandler {
           metaData: {"count": images.length},
           images: images,
           isImage: true,
+          errorLogs: [], // Image service handling could be expanded later
         );
       }
-      // === CASE D: STANDARD LLMs (Including Qwen) ===
+      // === CASE E: STANDARD LLMs (Including Qwen/Gemma & Fallbacks) ===
       else {
         // Prepare image files list for Vision models (like Gemma 4B)
         List<File> imageFiles = [];
@@ -146,12 +192,16 @@ class SubmissionHandler {
               .toList();
         }
 
-        // Use finalPrompt here for the LLM
         final aiResponse = await aiService.generateResponse(
           finalPrompt,
           provider,
           hasImages: hasImages,
-          imageFiles: imageFiles, // Passing actual image files if supported
+          imageFiles: imageFiles,
+          // PASS AUDIO DATA TO SUPPORT AUTO-SWITCHING
+          audioFile: audioFile,
+          assemblyConfig: assemblyConfig,
+          whisperConfig: whisperConfig,
+
           temperature: temperature,
         );
 
@@ -159,6 +209,8 @@ class SubmissionHandler {
           content: aiResponse['content'] ?? aiResponse.toString(),
           modelName: aiResponse['model'] ?? provider.name,
           metaData: aiResponse,
+          // --- EXTRACT LOGS FROM SERVICE ---
+          errorLogs: aiResponse['errorLogs'] ?? [],
         );
       }
     } catch (e) {

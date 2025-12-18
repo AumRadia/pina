@@ -1,3 +1,4 @@
+//
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:pina/screens/constants.dart';
@@ -51,9 +52,9 @@ class SubmissionService {
     }
   }
 
-  // --- UPDATED METHOD ---
+  // --- SAVE INPUT METHOD ---
   Future<SubmissionResult> validateAndSaveInput({
-    required String userId, // <--- CHANGED: Accepts userId
+    required String userId,
     required String userEmail,
     required String prompt,
     required List<String> fromList,
@@ -65,7 +66,7 @@ class SubmissionService {
         Uri.parse(saveInputUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          "userId": userId, // <--- SEND USER ID
+          "userId": userId,
           "userEmail": userEmail,
           "prompt": prompt,
           "from": fromList,
@@ -75,7 +76,6 @@ class SubmissionService {
       );
 
       final body = jsonDecode(res.body);
-      ;
 
       if (res.statusCode == 200) {
         return SubmissionResult(
@@ -111,13 +111,15 @@ class SubmissionService {
     }
   }
 
-  // --- UPDATED METHOD ---
+  // --- UPDATED SAVE OUTPUT METHOD ---
   Future<void> saveOutput({
     required int promptId,
-    required String userId, // <--- CHANGED: Accepts userId
+    required String userId,
     required String content,
     required String modelName,
     Map<String, dynamic>? outputParams,
+    // --- NEW ARGUMENT ---
+    List<dynamic>? errorLogs,
   }) async {
     try {
       await http.post(
@@ -125,10 +127,12 @@ class SubmissionService {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "promptId": promptId,
-          "userId": userId, // <--- SEND USER ID
+          "userId": userId,
           "content": content,
           "modelName": modelName,
           "outputParams": outputParams ?? {},
+          // --- SEND LOGS ---
+          "errorLogs": errorLogs ?? [],
         }),
       );
     } catch (e) {

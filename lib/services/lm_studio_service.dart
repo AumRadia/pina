@@ -1,5 +1,6 @@
-//Aum
-//v1.5 added Qwen Support
+//
+//
+// v1.8 Added Error Logging Support
 
 import 'dart:convert';
 import 'dart:async';
@@ -7,6 +8,10 @@ import 'dart:io'; // Required for File handling
 import 'package:http/http.dart' as http;
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pina/screens/constants.dart';
+
+import 'package:pina/services/audio_transcription_service.dart';
+import 'package:pina/models/assembly_config.dart';
+import 'package:pina/models/local_whisper_config.dart';
 
 // 1. Provider List
 enum LlmProvider {
@@ -22,10 +27,13 @@ enum LlmProvider {
   mistral, // L3
   deepSeek, // L4
   localGemma, // Text-Only (1B)
-  localGemma4b, // Gemma 3 4B (Vision)
-  qwen, // <--- NEW: Local Qwen Support
+  localGemma4b,
+  localLlama3_2_1b,
+  localPhi3_5_mini, // Gemma 3 4B (Vision)
+  qwen, // Local Qwen Support
   assemblyAi, // Audio (Cloud)
-  localWhisper, // Audio (Local)
+  localWhisper, // Audio (Local CLI)
+  distilWhisper, // Audio (Local LM Studio API)
   stableDiffusion, // Image
 }
 
@@ -57,14 +65,20 @@ extension ProviderDisplay on LlmProvider {
         return "L4 (DeepSeek)";
       case LlmProvider.localGemma:
         return "Local Gemma (1B)";
+      case LlmProvider.localLlama3_2_1b:
+        return "Local Llama 3.2 (1B)";
+      case LlmProvider.localPhi3_5_mini:
+        return "Phi-3.5 Mini (3.8B)";
       case LlmProvider.localGemma4b:
         return "Local Gemma 3 (4B - Vision)";
-      case LlmProvider.qwen: // <--- NEW CASE
+      case LlmProvider.qwen:
         return "Local Qwen";
       case LlmProvider.assemblyAi:
         return "Assembly AI (Audio)";
       case LlmProvider.localWhisper:
-        return "Local Whisper";
+        return "Local Whisper (CLI)";
+      case LlmProvider.distilWhisper:
+        return "Distil-Whisper";
       case LlmProvider.stableDiffusion:
         return "Stable Diffusion (Image)";
     }
@@ -87,6 +101,8 @@ class LmStudioService {
   static const String _deepSeekKey = "YOUR_DEEPSEEK_KEY";
 
   final Box _box = Hive.box('chat_storage_v2');
+  final AudioTranscriptionService _audioService = AudioTranscriptionService();
+
   String _uploadedDocumentContext = "";
   List<Map<String, dynamic>> _history = [];
 
@@ -100,9 +116,17 @@ class LmStudioService {
     LlmProvider selectedProvider, {
     bool hasImages = false,
     List<File>? imageFiles, // Accept image files
+    // NEW ARGUMENTS FOR AUDIO
+    File? audioFile,
+    AssemblyConfig? assemblyConfig,
+    LocalWhisperConfig? whisperConfig,
     double temperature = 0.7,
   }) async {
     List<LlmProvider> providerQueue = [];
+
+    // --- NEW: Error Logs Collection ---
+    // Stores provider name and error message only.
+    List<Map<String, String>> errorLogs = [];
 
     // 1. First Priority: The user selected provider
     providerQueue.add(selectedProvider);
@@ -135,27 +159,145 @@ class LmStudioService {
       if (!providerQueue.contains(p)) providerQueue.add(p);
     }
 
+    // 4. AUTO-ADD AUDIO PROVIDERS IF AUDIO IS UPLOADED
+    if (audioFile != null) {
+      if (!providerQueue.contains(LlmProvider.assemblyAi)) {
+        providerQueue.add(LlmProvider.assemblyAi);
+      }
+      if (!providerQueue.contains(LlmProvider.localWhisper)) {
+        providerQueue.add(LlmProvider.localWhisper);
+      }
+      if (!providerQueue.contains(LlmProvider.distilWhisper)) {
+        providerQueue.add(LlmProvider.distilWhisper);
+      }
+    }
+
     // --- EXECUTE QUEUE ---
     for (var provider in providerQueue) {
-      // Skip Special Providers (Audio/Image) in this loop
-      if (provider == LlmProvider.assemblyAi ||
-          provider == LlmProvider.localWhisper ||
-          provider == LlmProvider.stableDiffusion) {
+      // === HANDLE ASSEMBLY AI ===
+      if (provider == LlmProvider.assemblyAi) {
+        if (audioFile != null && assemblyConfig != null) {
+          print(
+            "🔄 Switching to provider: Assembly AI (Audio Input Detected)...",
+          );
+          try {
+            final result = await _audioService.transcribeAudio(
+              audioFile,
+              assemblyConfig,
+            );
+            if (result != null && !result.containsKey('error')) {
+              print("✅ Success with Assembly AI!");
+              return {
+                'success': true,
+                'content': result['text'] ?? result.toString(),
+                'model': 'AssemblyAI',
+                'status': 'success',
+                'errorLogs': errorLogs, // Pass logs
+              };
+            } else {
+              // Capture API Error (No Timestamp)
+              errorLogs.add({
+                'provider': 'AssemblyAI',
+                'error': result?['error'] ?? 'Unknown API Error',
+              });
+            }
+          } catch (e) {
+            // Capture Exception
+            print("⚠️ AssemblyAI failed: $e");
+            errorLogs.add({'provider': 'AssemblyAI', 'error': e.toString()});
+          }
+        }
         continue;
       }
 
-      // --- SKIP LOGIC ---
-      // If user selected Local Gemma (1B) or Qwen (if text only) but has attached images, skip it.
-      // BUT if they selected Gemma 4B (Vision), do NOT skip.
-      if ((provider == LlmProvider.localGemma ||
-              provider == LlmProvider.qwen) &&
-          hasImages) {
-        print(
-          "⚠️ Skipping ${provider.displayName} because images are attached (Text-Only model).",
-        );
-        continue; // Moves to the next provider
+      // === HANDLE LOCAL WHISPER (CLI) ===
+      if (provider == LlmProvider.localWhisper) {
+        if (audioFile != null && whisperConfig != null) {
+          print("🔄 Switching to provider: Local Whisper (CLI)...");
+          try {
+            final result = await _audioService.transcribeWithLocalWhisper(
+              audioFile,
+              whisperConfig,
+            );
+            if (result.containsKey('text')) {
+              print("✅ Success with Local Whisper!");
+              return {
+                'success': true,
+                'content': result['text'],
+                'model': 'LocalWhisper',
+                'status': 'success',
+                'errorLogs': errorLogs,
+              };
+            } else {
+              errorLogs.add({
+                'provider': 'LocalWhisper',
+                'error': result['error'] ?? 'CLI Error',
+              });
+            }
+          } catch (e) {
+            print("⚠️ Local Whisper failed: $e");
+            errorLogs.add({'provider': 'LocalWhisper', 'error': e.toString()});
+          }
+        }
+        continue;
       }
 
+      // === HANDLE DISTIL-WHISPER (API / LOCAL SERVER) ===
+      if (provider == LlmProvider.distilWhisper) {
+        if (audioFile != null) {
+          print("🔄 Switching to provider: Distil-Whisper (LM Studio API)...");
+          try {
+            final text = await _transcribeWithLmStudioApi(audioFile);
+            if (text != null && text.isNotEmpty) {
+              print("✅ Success with Distil-Whisper!");
+              return {
+                'success': true,
+                'content': text,
+                'model': 'Distil-Whisper',
+                'status': 'success',
+                'errorLogs': errorLogs,
+              };
+            } else {
+              errorLogs.add({
+                'provider': 'Distil-Whisper',
+                'error': 'API returned null text',
+              });
+            }
+          } catch (e) {
+            print("⚠️ Distil-Whisper failed: $e");
+            errorLogs.add({
+              'provider': 'Distil-Whisper',
+              'error': e.toString(),
+            });
+          }
+        }
+        continue;
+      }
+
+      // === HANDLE TEXT/IMAGE MODELS ===
+
+      // Skip Stable Diffusion in this text/audio loop
+      if (provider == LlmProvider.stableDiffusion) continue;
+
+      // 1. Skip Text-Only models if images are attached
+      if ((provider == LlmProvider.localGemma ||
+              provider == LlmProvider.localLlama3_2_1b ||
+              provider == LlmProvider.localPhi3_5_mini ||
+              provider == LlmProvider.qwen) &&
+          hasImages) {
+        // We don't log this as an "Error" because it's skipped logic,
+        // but if you want to log skips, you could do it here.
+        print("⚠️ Skipping ${provider.displayName} (Images attached).");
+        continue;
+      }
+
+      // 2. Skip Text Models if Audio is present
+      if (audioFile != null) {
+        print("⚠️ Skipping ${provider.displayName} (Audio Input).");
+        continue;
+      }
+
+      // --- STANDARD TEXT REQUEST ---
       try {
         print(
           "🔄 Trying provider: ${provider.displayName} (${provider.name})...",
@@ -167,36 +309,87 @@ class LmStudioService {
           temperature: temperature,
           imageFiles: (provider == LlmProvider.localGemma4b)
               ? imageFiles
-              : null, // Pass images only if supported (currently only configured for Gemma 4B)
+              : null,
         );
 
         if (response.statusCode >= 200 && response.statusCode < 300) {
           print("✅ Success with ${provider.displayName}!");
-          return _parseResponse(
+          var result = _parseResponse(
             response,
             originalPrompt: prompt,
             providerName: provider.displayName,
           );
+          // --- ATTACH LOGS TO RESULT ---
+          result['errorLogs'] = errorLogs;
+          return result;
         } else {
           print(
             "⚠️ Failed ${provider.displayName} with status ${response.statusCode}. Moving to next...",
           );
+          // Capture HTTP Error
+          errorLogs.add({
+            'provider': provider.displayName,
+            'error': 'HTTP ${response.statusCode}: ${response.body}',
+          });
         }
       } catch (e) {
         print(
           "⚠️ Exception with ${provider.displayName}: $e. Moving to next...",
         );
+        // Capture Exception
+        errorLogs.add({
+          'provider': provider.displayName,
+          'error': e.toString(),
+        });
       }
     }
 
     // 4. FINAL FALLBACK
     print("❌ All providers failed. Fallback to Google Message.");
     return {
-      'success': true,
+      'success': false,
       'content': 'All providers failed. Moved to local fallback.',
       'model': 'Fallback-Google',
-      'status': 'success',
+      'status': 'failed',
+      'errorLogs': errorLogs, // Return accumulated errors
     };
+  }
+
+  // --- API HELPER FOR DISTIL WHISPER ---
+  Future<String?> _transcribeWithLmStudioApi(File audioFile) async {
+    // Standard OpenAI-compatible audio endpoint on the local server
+    final uri = Uri.parse(
+      "${ApiConstants.lmStudioUrl}/v1/audio/transcriptions",
+    );
+
+    try {
+      var request = http.MultipartRequest('POST', uri);
+
+      // Add the file
+      request.files.add(
+        await http.MultipartFile.fromPath('file', audioFile.path),
+      );
+
+      // Add Model Name (Required by API spec)
+      request.fields['model'] = 'distil-whisper-large-v3';
+      request.fields['temperature'] = '0.0';
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['text'];
+      } else {
+        print(
+          "LM Studio Audio Error: ${response.statusCode} - ${response.body}",
+        );
+        return null;
+      }
+    } catch (e) {
+      print("Exception calling LM Studio Audio: $e");
+      return null;
+    }
   }
 
   Future<http.Response> _makeRequest({
@@ -227,7 +420,6 @@ class LmStudioService {
     }
 
     // --- CONSTRUCT CURRENT MESSAGE (TEXT + IMAGES) ---
-    // Only construct Vision payload if images exist AND provider is Gemma 4B (Vision)
     if (imageFiles != null &&
         imageFiles.isNotEmpty &&
         provider == LlmProvider.localGemma4b) {
@@ -241,10 +433,7 @@ class LmStudioService {
           final base64Image = base64Encode(bytes);
           contentParts.add({
             "type": "image_url",
-            "image_url": {
-              // Standard OpenAI/LM Studio Vision format
-              "url": "data:image/jpeg;base64,$base64Image",
-            },
+            "image_url": {"url": "data:image/jpeg;base64,$base64Image"},
           });
         } catch (e) {
           print("Error encoding image: $e");
@@ -253,7 +442,6 @@ class LmStudioService {
 
       messages.add({"role": "user", "content": contentParts});
     } else {
-      // Standard Text-Only Message
       messages.add({"role": "user", "content": finalPrompt});
     }
 
@@ -277,11 +465,19 @@ class LmStudioService {
         body['model'] = "gemma-3-4b";
         break;
 
-      case LlmProvider.qwen: // <--- NEW CASE: QWEN
+      case LlmProvider.localPhi3_5_mini:
         url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
-        // NOTE: Ensure this ID matches the loaded model in LM Studio exactly
-        // e.g., "qwen-2.5-7b-instruct" or "qwen-1.5-14b-chat"
-        body['model'] = "qqwen2-vl-2b-instruct";
+        body['model'] = "phi-3.5-mini-3.8b-instruct";
+        break;
+
+      case LlmProvider.qwen:
+        url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
+        body['model'] = "qwen2.5-1.5b-instruct";
+        break;
+
+      case LlmProvider.localLlama3_2_1b:
+        url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
+        body['model'] = "llama-3.2-1b-instruct";
         break;
 
       // --- A SERIES ---
@@ -336,12 +532,9 @@ class LmStudioService {
         url = "https://api.anthropic.com/v1/messages";
         headers['x-api-key'] = _anthropicKey;
         headers['anthropic-version'] = '2023-06-01';
-
-        // Dynamic Model Selection
         body['model'] = (provider == LlmProvider.anthropicHaiku)
-            ? "claude-3-haiku-20240307" // Cheap Model
-            : "claude-3-opus-20240229"; // Expensive Model
-
+            ? "claude-3-haiku-20240307"
+            : "claude-3-opus-20240229";
         body['max_tokens'] = 1024;
         break;
 
@@ -360,9 +553,10 @@ class LmStudioService {
       // --- SPECIAL PROVIDERS ---
       case LlmProvider.assemblyAi:
       case LlmProvider.localWhisper:
+      case LlmProvider.distilWhisper:
       case LlmProvider.stableDiffusion:
         throw UnimplementedError(
-          "AssemblyAI, LocalWhisper, and StableDiffusion are handled by dedicated services, not via _makeRequest.",
+          "Special providers (Audio/Image) should be handled before _makeRequest.",
         );
     }
 
