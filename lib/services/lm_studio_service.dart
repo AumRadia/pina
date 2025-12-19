@@ -1,10 +1,11 @@
 //
 //
-// v1.8 Added Error Logging Support
+// v2.0 Added CosyVoice 2 Support (TTS)
 
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io'; // Required for File handling
+import 'dart:typed_data'; // Required for Uint8List (Audio Bytes)
 import 'package:http/http.dart' as http;
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pina/screens/constants.dart';
@@ -12,6 +13,7 @@ import 'package:pina/screens/constants.dart';
 import 'package:pina/services/audio_transcription_service.dart';
 import 'package:pina/models/assembly_config.dart';
 import 'package:pina/models/local_whisper_config.dart';
+import 'package:pina/models/kokoro_config.dart'; // Re-used for TTS Config
 
 // 1. Provider List
 enum LlmProvider {
@@ -34,6 +36,8 @@ enum LlmProvider {
   assemblyAi, // Audio (Cloud)
   localWhisper, // Audio (Local CLI)
   distilWhisper, // Audio (Local LM Studio API)
+  kokoro, // TTS (Backend Node.js)
+  cosyVoice, // TTS (CosyVoice 2 - 0.5B) <--- NEW
   stableDiffusion, // Image
 }
 
@@ -79,6 +83,10 @@ extension ProviderDisplay on LlmProvider {
         return "Local Whisper (CLI)";
       case LlmProvider.distilWhisper:
         return "Distil-Whisper";
+      case LlmProvider.kokoro:
+        return "Kokoro";
+      case LlmProvider.cosyVoice:
+        return "CosyVoice 2 (0.5B)"; // <--- NEW Display Name
       case LlmProvider.stableDiffusion:
         return "Stable Diffusion (Image)";
     }
@@ -120,6 +128,7 @@ class LmStudioService {
     File? audioFile,
     AssemblyConfig? assemblyConfig,
     LocalWhisperConfig? whisperConfig,
+    KokoroConfig? kokoroConfig, // Used for both Kokoro & CosyVoice
     double temperature = 0.7,
   }) async {
     List<LlmProvider> providerQueue = [];
@@ -274,6 +283,95 @@ class LmStudioService {
         continue;
       }
 
+      // === HANDLE KOKORO TTS (BACKEND) ===
+      if (provider == LlmProvider.kokoro) {
+        print("🔄 Switching to provider: Kokoro TTS (Node.js)...");
+        try {
+          // Use provided config or defaults
+          final config = kokoroConfig ?? KokoroConfig();
+
+          // Call the helper method with config to get raw bytes
+          final audioBytes = await _generateKokoroAudio(prompt, config);
+
+          if (audioBytes != null && audioBytes.isNotEmpty) {
+            print("✅ Success with Kokoro TTS!");
+            return {
+              'success': true,
+              'content':
+                  "Generated Audio (${(audioBytes.length / 1024).toStringAsFixed(1)} KB)",
+              'model': 'Kokoro-82M',
+              'status': 'success',
+              'audioBytes': audioBytes, // Pass raw bytes to handler
+              'isAudio': true, // Flag for handler
+              'errorLogs': errorLogs,
+              // Metadata for Database
+              'voice': config.voice,
+              'speed': config.speed,
+            };
+          } else {
+            errorLogs.add({
+              'provider': 'Kokoro',
+              'error': 'API returned empty data',
+            });
+          }
+        } catch (e) {
+          print("⚠️ Kokoro failed: $e");
+          errorLogs.add({'provider': 'Kokoro', 'error': e.toString()});
+        }
+        // If Kokoro fails, we do NOT want to fall back to text LLMs.
+        return {
+          'success': false,
+          'content': 'Failed to generate audio via Kokoro.',
+          'model': 'Kokoro-Failed',
+          'status': 'failed',
+          'errorLogs': errorLogs,
+        };
+      }
+
+      // === HANDLE COSYVOICE TTS (BACKEND) ===
+      if (provider == LlmProvider.cosyVoice) {
+        print("🔄 Switching to provider: CosyVoice 2 (Node.js)...");
+        try {
+          // Use provided config or defaults (Sharing config structure with Kokoro)
+          final config = kokoroConfig ?? KokoroConfig();
+
+          // Call the helper method
+          final audioBytes = await _generateCosyVoiceAudio(prompt, config);
+
+          if (audioBytes != null && audioBytes.isNotEmpty) {
+            print("✅ Success with CosyVoice!");
+            return {
+              'success': true,
+              'content':
+                  "Generated Audio (${(audioBytes.length / 1024).toStringAsFixed(1)} KB)",
+              'model': 'CosyVoice2-0.5B',
+              'status': 'success',
+              'audioBytes': audioBytes,
+              'isAudio': true,
+              'errorLogs': errorLogs,
+              // Metadata for Database
+              'voice': config.voice,
+              'speed': config.speed,
+            };
+          } else {
+            errorLogs.add({
+              'provider': 'CosyVoice',
+              'error': 'API returned empty data',
+            });
+          }
+        } catch (e) {
+          print("⚠️ CosyVoice failed: $e");
+          errorLogs.add({'provider': 'CosyVoice', 'error': e.toString()});
+        }
+        return {
+          'success': false,
+          'content': 'Failed to generate audio via CosyVoice.',
+          'model': 'CosyVoice-Failed',
+          'status': 'failed',
+          'errorLogs': errorLogs,
+        };
+      }
+
       // === HANDLE TEXT/IMAGE MODELS ===
 
       // Skip Stable Diffusion in this text/audio loop
@@ -388,6 +486,78 @@ class LmStudioService {
       }
     } catch (e) {
       print("Exception calling LM Studio Audio: $e");
+      return null;
+    }
+  }
+
+  // --- API HELPER FOR KOKORO TTS ---
+  Future<Uint8List?> _generateKokoroAudio(
+    String text,
+    KokoroConfig config,
+  ) async {
+    // Replace with your actual backend URL.
+    const String backendUrl = "${ApiConstants.baseUrl}:4000/api/tts/kokoro";
+
+    try {
+      final response = await http.post(
+        Uri.parse(backendUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "text": text,
+          "voice": config.voice, // Pass selected voice
+          "speed": config.speed, // Pass selected speed
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return response.bodyBytes;
+      } else {
+        print("Kokoro API Error: ${response.statusCode} - ${response.body}");
+        return null;
+      }
+    } catch (e) {
+      print("Exception calling Kokoro API: $e");
+      return null;
+    }
+  }
+
+  // --- API HELPER FOR COSYVOICE TTS ---
+  Future<Uint8List?> _generateCosyVoiceAudio(
+    String text,
+    KokoroConfig config,
+  ) async {
+    // 1. Point to your Node.js Server (Port 4000), NOT LM Studio
+    // ⚠️ Ensure ApiConstants.baseUrl is your PC's IP (e.g. "http://192.168.1.XX")
+    // If ApiConstants.baseUrl already has "http://...", just add port.
+    final String backendUrl = "${ApiConstants.baseUrl}:4000/api/tts/cosyvoice";
+
+    final uri = Uri.parse(backendUrl);
+
+    try {
+      print("🔊 Sending Request to Node.js: $uri");
+
+      // 2. Send request to Node.js
+      final response = await http.post(
+        uri,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          // ⚠️ KEY CHANGE: Server expects "text", not "input"
+          "text": text,
+          "voice": config.voice, // e.g. 'af_heart'
+          "speed": config.speed, // e.g. 1.0
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        print("✅ Audio received! Size: ${response.bodyBytes.length} bytes");
+        return response.bodyBytes;
+      } else {
+        print("❌ Server Error: ${response.statusCode}");
+        print("Response: ${response.body}");
+        return null;
+      }
+    } catch (e) {
+      print("⚠️ Connection Error: $e");
       return null;
     }
   }
@@ -554,6 +724,8 @@ class LmStudioService {
       case LlmProvider.assemblyAi:
       case LlmProvider.localWhisper:
       case LlmProvider.distilWhisper:
+      case LlmProvider.kokoro:
+      case LlmProvider.cosyVoice:
       case LlmProvider.stableDiffusion:
         throw UnimplementedError(
           "Special providers (Audio/Image) should be handled before _makeRequest.",

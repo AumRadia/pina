@@ -9,6 +9,7 @@ import 'package:pina/models/assembly_config.dart';
 import 'package:pina/models/local_whisper_config.dart';
 import 'package:pina/models/image_generation_config.dart';
 import 'package:pina/models/attached_file.dart';
+import 'package:pina/models/kokoro_config.dart'; // <--- Used for Kokoro & CosyVoice
 import 'package:pina/utils/transcript_formatter.dart';
 
 // Simple class to hold the result so we don't return messy Maps
@@ -18,7 +19,10 @@ class SubmissionResult {
   final Map<String, dynamic> metaData;
   final List<Uint8List>? images;
   final bool isImage;
-  // --- NEW FIELD ---
+  // --- NEW FIELDS FOR AUDIO OUTPUT ---
+  final Uint8List? audioBytes;
+  final bool isAudio;
+  // -----------------------------------
   final List<dynamic>? errorLogs;
 
   SubmissionResult({
@@ -27,7 +31,9 @@ class SubmissionResult {
     required this.metaData,
     this.images,
     this.isImage = false,
-    this.errorLogs, // Add to constructor
+    this.audioBytes,
+    this.isAudio = false,
+    this.errorLogs,
   });
 
   factory SubmissionResult.error(String error) {
@@ -51,6 +57,7 @@ class SubmissionHandler {
     required AssemblyConfig assemblyConfig,
     required LocalWhisperConfig whisperConfig,
     required ImageGenerationConfig imageConfig,
+    required KokoroConfig kokoroConfig, // <--- Config for TTS
     required AudioTranscriptionService audioService,
     required ImageGenerationService imageService,
     required LmStudioService aiService,
@@ -58,19 +65,22 @@ class SubmissionHandler {
   }) async {
     try {
       // --- 2. BUILD THE MODIFIED PROMPT ---
-      // Process checkbox map and append 'true' values to the prompt
       String finalPrompt = promptText;
       List<String> selectedFeatures = [];
 
-      activeOptions.forEach((key, isChecked) {
-        if (isChecked) {
-          selectedFeatures.add(key);
-        }
-      });
+      // Only append checkbox options if NOT Kokoro OR CosyVoice
+      // This prevents appending metadata like "[Active Options...]" to text intended for TTS
+      if (provider != LlmProvider.kokoro && provider != LlmProvider.cosyVoice) {
+        activeOptions.forEach((key, isChecked) {
+          if (isChecked) {
+            selectedFeatures.add(key);
+          }
+        });
 
-      if (selectedFeatures.isNotEmpty) {
-        // Appends options like: "\n\n[Active Options: Input Type: Text, Output Type: Audio]"
-        finalPrompt += "\n\n[Active Options: ${selectedFeatures.join(', ')}]";
+        if (selectedFeatures.isNotEmpty) {
+          // Appends options like: "\n\n[Active Options: Input Type: Text, Output Type: Audio]"
+          finalPrompt += "\n\n[Active Options: ${selectedFeatures.join(', ')}]";
+        }
       }
       // ------------------------------------
 
@@ -148,7 +158,6 @@ class SubmissionHandler {
           provider,
           audioFile: audioFile,
           whisperConfig: whisperConfig,
-          assemblyConfig: assemblyConfig,
         );
 
         return SubmissionResult(
@@ -173,7 +182,7 @@ class SubmissionHandler {
           errorLogs: [], // Image service handling could be expanded later
         );
       }
-      // === CASE E: STANDARD LLMs (Including Qwen/Gemma & Fallbacks) ===
+      // === CASE E: STANDARD LLMs (Including Kokoro, CosyVoice, Qwen, etc.) ===
       else {
         // Prepare image files list for Vision models (like Gemma 4B)
         List<File> imageFiles = [];
@@ -201,9 +210,14 @@ class SubmissionHandler {
           audioFile: audioFile,
           assemblyConfig: assemblyConfig,
           whisperConfig: whisperConfig,
+          kokoroConfig: kokoroConfig, // <--- Pass Config (used by both TTS)
 
           temperature: temperature,
         );
+
+        // Check if the response contains raw audio (e.g. from Kokoro or CosyVoice)
+        bool isAudioOutput = aiResponse['isAudio'] == true;
+        Uint8List? audioBytes = aiResponse['audioBytes'];
 
         return SubmissionResult(
           content: aiResponse['content'] ?? aiResponse.toString(),
@@ -211,6 +225,9 @@ class SubmissionHandler {
           metaData: aiResponse,
           // --- EXTRACT LOGS FROM SERVICE ---
           errorLogs: aiResponse['errorLogs'] ?? [],
+          // --- MAP AUDIO FIELDS ---
+          isAudio: isAudioOutput,
+          audioBytes: audioBytes,
         );
       }
     } catch (e) {

@@ -30,6 +30,7 @@ dependencies:
   hive_flutter: ^1.1.0
   duckduckgo_search: ^0.2.0
   google_generative_ai: ^0.4.7
+  audioplayers: ^6.5.1
 
 dev_dependencies:
   flutter_test:

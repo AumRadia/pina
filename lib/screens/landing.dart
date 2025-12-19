@@ -1,11 +1,14 @@
-//
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
+import 'package:audioplayers/audioplayers.dart'; // Required for Audio Playback
+import 'package:path_provider/path_provider.dart'; // Required for temp file creation
+
 import 'package:pina/models/image_generation_config.dart';
 import 'package:pina/models/local_whisper_config.dart';
 import 'package:pina/models/attached_file.dart';
+import 'package:pina/models/kokoro_config.dart'; // New Import
 import 'package:pina/services/lm_studio_service.dart';
 import 'package:pina/screens/loginscreen.dart';
 import 'package:pina/services/submission_service.dart';
@@ -21,6 +24,7 @@ import 'package:pina/widgets/download_options_dialog.dart';
 import 'package:pina/widgets/image_config_dialog.dart';
 import 'package:pina/widgets/image_download_dialog.dart';
 import 'package:pina/widgets/local_whisper_config_dialog.dart';
+import 'package:pina/widgets/kokoro_config_dialog.dart'; // New Import
 import 'package:pina/widgets/provider_selector_widget.dart';
 
 class LandingScreen extends StatefulWidget {
@@ -66,10 +70,18 @@ class _LandingScreenState extends State<LandingScreen> {
     punctuate: true,
     formatText: true,
   );
+  KokoroConfig kokoroConfig =
+      KokoroConfig(); // New Config (Used for Kokoro & CosyVoice)
 
   // Outputs & State
   String? output;
   List<Uint8List>? imageOutput;
+
+  // --- Audio Output State ---
+  Uint8List? audioOutputBytes;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  // -------------------------------
+
   OutputType currentOutputType = OutputType.text;
   bool isLoading = false;
   int tokenCount = 0;
@@ -107,6 +119,13 @@ class _LandingScreenState extends State<LandingScreen> {
     super.initState();
     _initializeSelections();
     _autoSelectFromTitle();
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose(); // Clean up audio player
+    controller.dispose();
+    super.dispose();
   }
 
   void _initializeSelections() {
@@ -219,6 +238,19 @@ class _LandingScreenState extends State<LandingScreen> {
     }
   }
 
+  Future<void> _showKokoroConfig() async {
+    final result = await showDialog<KokoroConfig>(
+      context: context,
+      builder: (context) => KokoroConfigDialog(initialConfig: kokoroConfig),
+    );
+    if (result != null) {
+      setState(() => kokoroConfig = result);
+      _showSnack(
+        "TTS Settings updated: ${kokoroConfig.voice} @ ${kokoroConfig.speed}x",
+      );
+    }
+  }
+
   Future<void> _showAudioConfig() async {
     if (selectedProvider == LlmProvider.assemblyAi) {
       final result = await showDialog<AssemblyConfig>(
@@ -240,7 +272,6 @@ class _LandingScreenState extends State<LandingScreen> {
         _showSnack("Local Whisper settings updated");
       }
     } else {
-      // Fallback or generic audio settings could go here
       _showSnack("Select an Audio Provider to configure settings.");
     }
   }
@@ -278,6 +309,13 @@ class _LandingScreenState extends State<LandingScreen> {
       );
       return;
     }
+    // Validation for TTS Models (Kokoro OR CosyVoice)
+    if ((selectedProvider == LlmProvider.kokoro ||
+            selectedProvider == LlmProvider.cosyVoice) &&
+        promptText.isEmpty) {
+      _showSnack("Please enter text to generate audio.", isError: true);
+      return;
+    }
 
     // 2. UI PREP
     _prepareUIForSubmission();
@@ -285,6 +323,7 @@ class _LandingScreenState extends State<LandingScreen> {
       isLoading = true;
       output = null;
       imageOutput = null;
+      audioOutputBytes = null; // Reset audio
       if (!isRegeneration) {
         currentPromptId = null;
       }
@@ -304,7 +343,12 @@ class _LandingScreenState extends State<LandingScreen> {
     // 4. SAVE INPUT (Database) - SKIP IF REGENERATING
     if (!isRegeneration) {
       final inputParams = _getInputParams();
-      inputParams['temperature'] = effectiveTemperature;
+
+      // Do NOT save temperature for TTS models
+      if (selectedProvider != LlmProvider.kokoro &&
+          selectedProvider != LlmProvider.cosyVoice) {
+        inputParams['temperature'] = effectiveTemperature;
+      }
 
       final submissionPrompt =
           _isAudioProvider(selectedProvider) && selectedAudioFile != null
@@ -336,7 +380,7 @@ class _LandingScreenState extends State<LandingScreen> {
       setState(() => currentPromptId = result.promptId);
     }
 
-    // 5. CHECK FOR IMAGES (Logic handled inside Service for AttachedFiles)
+    // 5. CHECK FOR IMAGES
     bool hasImages = attachedFiles.any((f) {
       final ext = f.extension.toLowerCase();
       return ['jpg', 'png', 'jpeg', 'webp', 'bmp'].contains(ext);
@@ -346,13 +390,15 @@ class _LandingScreenState extends State<LandingScreen> {
     final executionResult = await SubmissionHandler.processRequest(
       provider: selectedProvider,
       promptText: promptText,
-      audioFile: selectedAudioFile, // Now populated by _checkForAudioFiles
+      audioFile: selectedAudioFile,
       hasImages: hasImages,
       attachedFiles: attachedFiles,
       activeOptions: effectiveOptions,
       assemblyConfig: audioConfig,
       whisperConfig: localWhisperConfig,
       imageConfig: imageConfig,
+      kokoroConfig:
+          kokoroConfig, // Pass Kokoro Config (Also used for CosyVoice)
       audioService: _audioService,
       imageService: _imageService,
       aiService: _aiService,
@@ -362,12 +408,20 @@ class _LandingScreenState extends State<LandingScreen> {
     // 7. UPDATE UI WITH RESULTS
     if (executionResult.isImage) {
       imageOutput = executionResult.images;
+      // Ensure UI knows we have images
+      currentOutputType = OutputType.image;
+    } else if (executionResult.isAudio) {
+      // HANDLE AUDIO OUTPUT
+      audioOutputBytes = executionResult.audioBytes;
+      output = executionResult.content;
+      // We don't have OutputType.audio in the existing enum usually,
+      // so we rely on audioOutputBytes not being null in build()
     } else {
       output = executionResult.content;
+      currentOutputType = OutputType.text;
     }
 
     // 8. SAVE OUTPUT (Database)
-    // --- UPDATED: Pass errorLogs here ---
     if (currentPromptId != null) {
       await _submissionService.saveOutput(
         promptId: currentPromptId!,
@@ -375,7 +429,7 @@ class _LandingScreenState extends State<LandingScreen> {
         content: executionResult.content,
         modelName: executionResult.modelName,
         outputParams: executionResult.metaData,
-        errorLogs: executionResult.errorLogs, // <--- PASSED HERE
+        errorLogs: executionResult.errorLogs,
       );
     }
 
@@ -411,10 +465,9 @@ Fix mistakes, remove fluff, and keep the same meaning.
       p == LlmProvider.assemblyAi || p == LlmProvider.localWhisper;
 
   void _prepareUIForSubmission() {
-    // Logic updated to respect detected files regardless of provider selection
     if (_isAudioProvider(selectedProvider) || selectedAudioFile != null) {
       setState(() {
-        isAudioToTextMode = true; // Enable audio UI features like download
+        isAudioToTextMode = true;
         currentOutputType = OutputType.text;
       });
     } else if (selectedProvider == LlmProvider.stableDiffusion) {
@@ -436,6 +489,12 @@ Fix mistakes, remove fluff, and keep the same meaning.
       return imageConfig.toJson();
     if (selectedProvider == LlmProvider.localWhisper)
       return localWhisperConfig.toJson();
+
+    // Save TTS params for Kokoro or CosyVoice
+    if (selectedProvider == LlmProvider.kokoro ||
+        selectedProvider == LlmProvider.cosyVoice)
+      return kokoroConfig.toJson();
+
     return {};
   }
 
@@ -469,6 +528,35 @@ Fix mistakes, remove fluff, and keep the same meaning.
       case DownloadOption.drive:
         await FileDownloadHelper.shareToDrive(context, output!, fileName);
         break;
+    }
+  }
+
+  // --- SAVE AUDIO BYTES ---
+  Future<void> _saveGeneratedAudio() async {
+    if (audioOutputBytes == null) return;
+
+    try {
+      String fileName =
+          "generated_audio_${DateTime.now().millisecondsSinceEpoch}.wav";
+
+      String? outputPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Audio',
+        fileName: fileName,
+        type: FileType.audio,
+        bytes: audioOutputBytes,
+      );
+
+      if (outputPath != null) {
+        File savedFile = File(outputPath);
+        if (!savedFile.existsSync()) {
+          await savedFile.writeAsBytes(audioOutputBytes!);
+        }
+        _showSnack("Audio saved to $outputPath");
+      } else {
+        _showSnack("Save cancelled");
+      }
+    } catch (e) {
+      _showSnack("Error saving file: $e", isError: true);
     }
   }
 
@@ -558,13 +646,42 @@ Fix mistakes, remove fluff, and keep the same meaning.
 
             _buildTemperatureSlider(),
             const SizedBox(height: 15),
-            ProviderSelectorWidget(
-              selectedProvider: selectedProvider,
-              onProviderChanged: (p) => setState(() => selectedProvider = p),
+
+            // Provider + Settings Row
+            Row(
+              children: [
+                Expanded(
+                  child: ProviderSelectorWidget(
+                    selectedProvider: selectedProvider,
+                    onProviderChanged: (p) =>
+                        setState(() => selectedProvider = p),
+                  ),
+                ),
+                // Show Settings button if Kokoro OR CosyVoice is selected
+                if (selectedProvider == LlmProvider.kokoro ||
+                    selectedProvider == LlmProvider.cosyVoice) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: _showKokoroConfig, // Reuse Config Dialog
+                    icon: const Icon(Icons.tune),
+                    tooltip: "TTS Settings",
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
 
             const SizedBox(height: 30),
-            if (output != null || imageOutput != null) _buildOutputSection(),
+            if (output != null ||
+                imageOutput != null ||
+                audioOutputBytes != null)
+              _buildOutputSection(),
           ],
         ),
       ),
@@ -617,8 +734,7 @@ Fix mistakes, remove fluff, and keep the same meaning.
                     ['jpg', 'png', 'jpeg'].contains(file.extension)
                         ? Icons.image
                         : _audioExtensions.contains(file.extension)
-                        ? Icons
-                              .audiotrack // Changed icon for audio
+                        ? Icons.audiotrack
                         : Icons.description,
                     size: 16,
                     color: Colors.black54,
@@ -656,7 +772,6 @@ Fix mistakes, remove fluff, and keep the same meaning.
     );
   }
 
-  // Simplified Audio Section: No Upload Button
   Widget _buildAudioSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -725,6 +840,13 @@ Fix mistakes, remove fluff, and keep the same meaning.
   }
 
   Widget _buildTemperatureSlider() {
+    // 1. Determine if slider should be enabled
+    // Disable for TTS models (Kokoro, CosyVoice) or when loading
+    bool isEnabled =
+        selectedProvider != LlmProvider.kokoro &&
+        selectedProvider != LlmProvider.cosyVoice &&
+        !isLoading;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -733,9 +855,13 @@ Fix mistakes, remove fluff, and keep the same meaning.
           children: [
             Row(
               children: [
-                const Text(
+                Text(
                   "Creativity",
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    // Dim text if disabled
+                    color: isEnabled ? Colors.black : Colors.grey,
+                  ),
                 ),
                 const SizedBox(width: 5),
                 Tooltip(
@@ -752,17 +878,24 @@ Fix mistakes, remove fluff, and keep the same meaning.
                     color: Colors.black.withOpacity(0.9),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.help_outline,
                     size: 18,
-                    color: Colors.grey,
+                    // Dim icon if disabled
+                    color: isEnabled
+                        ? Colors.grey
+                        : Colors.grey.withOpacity(0.3),
                   ),
                 ),
               ],
             ),
-            Text(_temperature.toStringAsFixed(1)),
+            Text(
+              isEnabled ? _temperature.toStringAsFixed(1) : "N/A",
+              style: TextStyle(color: isEnabled ? Colors.black : Colors.grey),
+            ),
           ],
         ),
+        // 2. Wrap Slider in AbsorbPointer/Opacity or just use onChanged: null
         Slider(
           value: _temperature,
           min: 0.1,
@@ -770,13 +903,17 @@ Fix mistakes, remove fluff, and keep the same meaning.
           divisions: 14,
           label: _temperature.toStringAsFixed(1),
           activeColor: Colors.black,
-          onChanged: (val) => setState(() => _temperature = val),
+          // Disable slider interaction by setting onChanged to null if disabled
+          onChanged: isEnabled
+              ? (val) => setState(() => _temperature = val)
+              : null,
         ),
       ],
     );
   }
 
   Widget _buildOutputSection() {
+    // === 1. IMAGE OUTPUT ===
     if (currentOutputType == OutputType.image) {
       return GenerationOutputView(
         type: OutputType.image,
@@ -799,6 +936,93 @@ Fix mistakes, remove fluff, and keep the same meaning.
         },
       );
     }
+
+    // === 2. AUDIO OUTPUT (Kokoro & CosyVoice) ===
+    if (audioOutputBytes != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "Audio Output:",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              IconButton(
+                icon: const Icon(Icons.download),
+                tooltip: "Save Audio",
+                onPressed: _saveGeneratedAudio,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: Colors.black,
+                  radius: 25,
+                  child: IconButton(
+                    icon: const Icon(
+                      Icons.play_arrow,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                    onPressed: () async {
+                      try {
+                        // Write bytes to temp file to play
+                        final tempDir = await getTemporaryDirectory();
+                        final file = File(
+                          '${tempDir.path}/temp_generated_audio.wav',
+                        );
+                        await file.writeAsBytes(audioOutputBytes!);
+
+                        await _audioPlayer.stop(); // Stop previous
+                        await _audioPlayer.play(DeviceFileSource(file.path));
+                      } catch (e) {
+                        _showSnack("Error playing audio: $e", isError: true);
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        output ?? "Audio Generated Successfully",
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "${(audioOutputBytes!.length / 1024).toStringAsFixed(1)} KB • WAV",
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.stop_circle_outlined, size: 30),
+                  onPressed: () async => await _audioPlayer.stop(),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    // === 3. TEXT OUTPUT (Default) ===
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
