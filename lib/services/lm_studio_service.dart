@@ -1,6 +1,4 @@
-//
-//
-// v2.0 Added CosyVoice 2 Support (TTS)
+// lib/services/lm_studio_service.dart
 
 import 'dart:convert';
 import 'dart:async';
@@ -8,12 +6,13 @@ import 'dart:io'; // Required for File handling
 import 'dart:typed_data'; // Required for Uint8List (Audio Bytes)
 import 'package:http/http.dart' as http;
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:pina/models/melo_config.dart'; // <--- Ensure this is imported
 import 'package:pina/screens/constants.dart';
 
 import 'package:pina/services/audio_transcription_service.dart';
 import 'package:pina/models/assembly_config.dart';
 import 'package:pina/models/local_whisper_config.dart';
-import 'package:pina/models/kokoro_config.dart'; // Re-used for TTS Config
+import 'package:pina/models/kokoro_config.dart';
 
 // 1. Provider List
 enum LlmProvider {
@@ -37,7 +36,8 @@ enum LlmProvider {
   localWhisper, // Audio (Local CLI)
   distilWhisper, // Audio (Local LM Studio API)
   kokoro, // TTS (Backend Node.js)
-  cosyVoice, // TTS (CosyVoice 2 - 0.5B) <--- NEW
+  cosyVoice, // TTS (CosyVoice 2 - 0.5B)
+  meloTts, // TTS (MeloTTS)
   stableDiffusion, // Image
 }
 
@@ -74,7 +74,7 @@ extension ProviderDisplay on LlmProvider {
       case LlmProvider.localPhi3_5_mini:
         return "Phi-3.5 Mini (3.8B)";
       case LlmProvider.localGemma4b:
-        return "Local Gemma 3 (4B - Vision)";
+        return "Local Gemma 3";
       case LlmProvider.qwen:
         return "Local Qwen";
       case LlmProvider.assemblyAi:
@@ -86,7 +86,9 @@ extension ProviderDisplay on LlmProvider {
       case LlmProvider.kokoro:
         return "Kokoro";
       case LlmProvider.cosyVoice:
-        return "CosyVoice 2 (0.5B)"; // <--- NEW Display Name
+        return "CosyVoice 2 (0.5B)";
+      case LlmProvider.meloTts:
+        return "Melo TTS";
       case LlmProvider.stableDiffusion:
         return "Stable Diffusion (Image)";
     }
@@ -128,13 +130,13 @@ class LmStudioService {
     File? audioFile,
     AssemblyConfig? assemblyConfig,
     LocalWhisperConfig? whisperConfig,
-    KokoroConfig? kokoroConfig, // Used for both Kokoro & CosyVoice
+    KokoroConfig? kokoroConfig,
+    MeloConfig? meloConfig, // <--- Correct Config Type for Melo
     double temperature = 0.7,
   }) async {
     List<LlmProvider> providerQueue = [];
 
     // --- NEW: Error Logs Collection ---
-    // Stores provider name and error message only.
     List<Map<String, String>> errorLogs = [];
 
     // 1. First Priority: The user selected provider
@@ -201,17 +203,15 @@ class LmStudioService {
                 'content': result['text'] ?? result.toString(),
                 'model': 'AssemblyAI',
                 'status': 'success',
-                'errorLogs': errorLogs, // Pass logs
+                'errorLogs': errorLogs,
               };
             } else {
-              // Capture API Error (No Timestamp)
               errorLogs.add({
                 'provider': 'AssemblyAI',
                 'error': result?['error'] ?? 'Unknown API Error',
               });
             }
           } catch (e) {
-            // Capture Exception
             print("⚠️ AssemblyAI failed: $e");
             errorLogs.add({'provider': 'AssemblyAI', 'error': e.toString()});
           }
@@ -287,10 +287,7 @@ class LmStudioService {
       if (provider == LlmProvider.kokoro) {
         print("🔄 Switching to provider: Kokoro TTS (Node.js)...");
         try {
-          // Use provided config or defaults
           final config = kokoroConfig ?? KokoroConfig();
-
-          // Call the helper method with config to get raw bytes
           final audioBytes = await _generateKokoroAudio(prompt, config);
 
           if (audioBytes != null && audioBytes.isNotEmpty) {
@@ -301,10 +298,10 @@ class LmStudioService {
                   "Generated Audio (${(audioBytes.length / 1024).toStringAsFixed(1)} KB)",
               'model': 'Kokoro-82M',
               'status': 'success',
-              'audioBytes': audioBytes, // Pass raw bytes to handler
-              'isAudio': true, // Flag for handler
+              'audioBytes': audioBytes,
+              'isAudio': true,
               'errorLogs': errorLogs,
-              // Metadata for Database
+              // Metadata
               'voice': config.voice,
               'speed': config.speed,
             };
@@ -318,7 +315,6 @@ class LmStudioService {
           print("⚠️ Kokoro failed: $e");
           errorLogs.add({'provider': 'Kokoro', 'error': e.toString()});
         }
-        // If Kokoro fails, we do NOT want to fall back to text LLMs.
         return {
           'success': false,
           'content': 'Failed to generate audio via Kokoro.',
@@ -332,10 +328,7 @@ class LmStudioService {
       if (provider == LlmProvider.cosyVoice) {
         print("🔄 Switching to provider: CosyVoice 2 (Node.js)...");
         try {
-          // Use provided config or defaults (Sharing config structure with Kokoro)
           final config = kokoroConfig ?? KokoroConfig();
-
-          // Call the helper method
           final audioBytes = await _generateCosyVoiceAudio(prompt, config);
 
           if (audioBytes != null && audioBytes.isNotEmpty) {
@@ -349,7 +342,7 @@ class LmStudioService {
               'audioBytes': audioBytes,
               'isAudio': true,
               'errorLogs': errorLogs,
-              // Metadata for Database
+              // Metadata
               'voice': config.voice,
               'speed': config.speed,
             };
@@ -372,9 +365,55 @@ class LmStudioService {
         };
       }
 
+      // === HANDLE MELO TTS (BACKEND) ===
+      // <--- UPDATED LOGIC FOR MELO
+      if (provider == LlmProvider.meloTts) {
+        print("🔄 Switching to provider: Melo TTS (Node.js)...");
+        try {
+          // Use MeloConfig here
+          final config = meloConfig ?? MeloConfig();
+
+          // Call specific helper
+          final audioBytes = await _generateMeloAudio(prompt, config);
+
+          if (audioBytes != null && audioBytes.isNotEmpty) {
+            print("✅ Success with Melo TTS!");
+            return {
+              'success': true,
+              'content':
+                  "Generated Audio (${(audioBytes.length / 1024).toStringAsFixed(1)} KB)",
+              'model': 'MeloTTS',
+              'status': 'success',
+              'audioBytes': audioBytes,
+              'isAudio': true,
+              'errorLogs': errorLogs,
+              // === CAPTURE OUTPUT PARAMETERS ===
+              'speed': config.speed,
+              'noise_scale': config.noiseScale,
+              'accent': config.accent,
+              'language': config.language,
+            };
+          } else {
+            errorLogs.add({
+              'provider': 'MeloTTS',
+              'error': 'API returned empty data',
+            });
+          }
+        } catch (e) {
+          print("⚠️ MeloTTS failed: $e");
+          errorLogs.add({'provider': 'MeloTTS', 'error': e.toString()});
+        }
+        return {
+          'success': false,
+          'content': 'Failed to generate audio via MeloTTS.',
+          'model': 'Melo-Failed',
+          'status': 'failed',
+          'errorLogs': errorLogs,
+        };
+      }
+
       // === HANDLE TEXT/IMAGE MODELS ===
 
-      // Skip Stable Diffusion in this text/audio loop
       if (provider == LlmProvider.stableDiffusion) continue;
 
       // 1. Skip Text-Only models if images are attached
@@ -383,8 +422,6 @@ class LmStudioService {
               provider == LlmProvider.localPhi3_5_mini ||
               provider == LlmProvider.qwen) &&
           hasImages) {
-        // We don't log this as an "Error" because it's skipped logic,
-        // but if you want to log skips, you could do it here.
         print("⚠️ Skipping ${provider.displayName} (Images attached).");
         continue;
       }
@@ -417,14 +454,12 @@ class LmStudioService {
             originalPrompt: prompt,
             providerName: provider.displayName,
           );
-          // --- ATTACH LOGS TO RESULT ---
           result['errorLogs'] = errorLogs;
           return result;
         } else {
           print(
             "⚠️ Failed ${provider.displayName} with status ${response.statusCode}. Moving to next...",
           );
-          // Capture HTTP Error
           errorLogs.add({
             'provider': provider.displayName,
             'error': 'HTTP ${response.statusCode}: ${response.body}',
@@ -434,7 +469,6 @@ class LmStudioService {
         print(
           "⚠️ Exception with ${provider.displayName}: $e. Moving to next...",
         );
-        // Capture Exception
         errorLogs.add({
           'provider': provider.displayName,
           'error': e.toString(),
@@ -449,26 +483,20 @@ class LmStudioService {
       'content': 'All providers failed. Moved to local fallback.',
       'model': 'Fallback-Google',
       'status': 'failed',
-      'errorLogs': errorLogs, // Return accumulated errors
+      'errorLogs': errorLogs,
     };
   }
 
   // --- API HELPER FOR DISTIL WHISPER ---
   Future<String?> _transcribeWithLmStudioApi(File audioFile) async {
-    // Standard OpenAI-compatible audio endpoint on the local server
     final uri = Uri.parse(
       "${ApiConstants.lmStudioUrl}/v1/audio/transcriptions",
     );
-
     try {
       var request = http.MultipartRequest('POST', uri);
-
-      // Add the file
       request.files.add(
         await http.MultipartFile.fromPath('file', audioFile.path),
       );
-
-      // Add Model Name (Required by API spec)
       request.fields['model'] = 'distil-whisper-large-v3';
       request.fields['temperature'] = '0.0';
 
@@ -495,7 +523,6 @@ class LmStudioService {
     String text,
     KokoroConfig config,
   ) async {
-    // Replace with your actual backend URL.
     const String backendUrl = "${ApiConstants.baseUrl}:4000/api/tts/kokoro";
 
     try {
@@ -504,8 +531,8 @@ class LmStudioService {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "text": text,
-          "voice": config.voice, // Pass selected voice
-          "speed": config.speed, // Pass selected speed
+          "voice": config.voice,
+          "speed": config.speed,
         }),
       );
 
@@ -526,25 +553,18 @@ class LmStudioService {
     String text,
     KokoroConfig config,
   ) async {
-    // 1. Point to your Node.js Server (Port 4000), NOT LM Studio
-    // ⚠️ Ensure ApiConstants.baseUrl is your PC's IP (e.g. "http://192.168.1.XX")
-    // If ApiConstants.baseUrl already has "http://...", just add port.
     final String backendUrl = "${ApiConstants.baseUrl}:4000/api/tts/cosyvoice";
-
     final uri = Uri.parse(backendUrl);
 
     try {
       print("🔊 Sending Request to Node.js: $uri");
-
-      // 2. Send request to Node.js
       final response = await http.post(
         uri,
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          // ⚠️ KEY CHANGE: Server expects "text", not "input"
           "text": text,
-          "voice": config.voice, // e.g. 'af_heart'
-          "speed": config.speed, // e.g. 1.0
+          "voice": config.voice,
+          "speed": config.speed,
         }),
       );
 
@@ -553,11 +573,51 @@ class LmStudioService {
         return response.bodyBytes;
       } else {
         print("❌ Server Error: ${response.statusCode}");
-        print("Response: ${response.body}");
         return null;
       }
     } catch (e) {
       print("⚠️ Connection Error: $e");
+      return null;
+    }
+  }
+
+  // --- API HELPER FOR MELO TTS (UPDATED) ---
+  Future<Uint8List?> _generateMeloAudio(
+    String text,
+    MeloConfig config, // <--- Accepts MeloConfig
+  ) async {
+    final String backendUrl =
+        "${ApiConstants.baseUrl}:4000/api/python-tts/melo";
+    final uri = Uri.parse(backendUrl);
+
+    try {
+      print(
+        "🔊 Sending Request to MeloTTS: $uri | Speed: ${config.speed} | Noise: ${config.noiseScale}",
+      );
+
+      final response = await http
+          .post(
+            uri,
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "text": text,
+              "accent": config.accent,
+              "speed": config.speed,
+              "noise_scale": config.noiseScale, // <--- Sending Noise Scale
+            }),
+          )
+          .timeout(const Duration(seconds: 90));
+
+      if (response.statusCode == 200) {
+        if (response.bodyBytes.isNotEmpty) {
+          return response.bodyBytes;
+        }
+      } else {
+        print("❌ Backend error ${response.statusCode}: ${response.body}");
+      }
+      return null;
+    } catch (e) {
+      print("⚠️ Connection Error (Melo): $e");
       return null;
     }
   }
@@ -726,6 +786,7 @@ class LmStudioService {
       case LlmProvider.distilWhisper:
       case LlmProvider.kokoro:
       case LlmProvider.cosyVoice:
+      case LlmProvider.meloTts:
       case LlmProvider.stableDiffusion:
         throw UnimplementedError(
           "Special providers (Audio/Image) should be handled before _makeRequest.",

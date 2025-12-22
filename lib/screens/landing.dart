@@ -9,10 +9,12 @@ import 'package:pina/models/image_generation_config.dart';
 import 'package:pina/models/local_whisper_config.dart';
 import 'package:pina/models/attached_file.dart';
 import 'package:pina/models/kokoro_config.dart'; // New Import
+import 'package:pina/models/melo_config.dart';
 import 'package:pina/services/lm_studio_service.dart';
 import 'package:pina/screens/loginscreen.dart';
 import 'package:pina/services/submission_service.dart';
 import 'package:pina/models/assembly_config.dart';
+import 'package:pina/utils/melo_config_dialog.dart';
 import 'package:pina/widgets/audio_config_dialog.dart';
 import 'package:pina/services/audio_transcription_service.dart';
 import 'package:pina/services/image_generation_service.dart';
@@ -47,6 +49,7 @@ class LandingScreen extends StatefulWidget {
 
 class _LandingScreenState extends State<LandingScreen> {
   // MASTER SOURCE OF TRUTH FOR TEMPERATURE
+  MeloConfig meloConfig = MeloConfig();
   double _temperature = 0.7;
   String _lastSubmittedPrompt = "";
 
@@ -71,7 +74,7 @@ class _LandingScreenState extends State<LandingScreen> {
     formatText: true,
   );
   KokoroConfig kokoroConfig =
-      KokoroConfig(); // New Config (Used for Kokoro & CosyVoice)
+      KokoroConfig(); // New Config (Used for Kokoro, CosyVoice & Melo)
 
   // Outputs & State
   String? output;
@@ -251,6 +254,32 @@ class _LandingScreenState extends State<LandingScreen> {
     }
   }
 
+  Future<void> _showTtsSettings() async {
+    if (selectedProvider == LlmProvider.meloTts) {
+      // Show Melo Dialog
+      final result = await showDialog<MeloConfig>(
+        context: context,
+        builder: (context) => MeloConfigDialog(initialConfig: meloConfig),
+      );
+      if (result != null) {
+        setState(() => meloConfig = result);
+        _showSnack(
+          "Melo Updated: Speed ${meloConfig.speed}x | Noise ${meloConfig.noiseScale}",
+        );
+      }
+    } else {
+      // Existing Kokoro/CosyVoice Logic
+      final result = await showDialog<KokoroConfig>(
+        context: context,
+        builder: (context) => KokoroConfigDialog(initialConfig: kokoroConfig),
+      );
+      if (result != null) {
+        setState(() => kokoroConfig = result);
+        _showSnack("Kokoro Settings updated");
+      }
+    }
+  }
+
   Future<void> _showAudioConfig() async {
     if (selectedProvider == LlmProvider.assemblyAi) {
       final result = await showDialog<AssemblyConfig>(
@@ -309,9 +338,10 @@ class _LandingScreenState extends State<LandingScreen> {
       );
       return;
     }
-    // Validation for TTS Models (Kokoro OR CosyVoice)
+    // Validation for TTS Models (Kokoro OR CosyVoice OR Melo)
     if ((selectedProvider == LlmProvider.kokoro ||
-            selectedProvider == LlmProvider.cosyVoice) &&
+            selectedProvider == LlmProvider.cosyVoice ||
+            selectedProvider == LlmProvider.meloTts) &&
         promptText.isEmpty) {
       _showSnack("Please enter text to generate audio.", isError: true);
       return;
@@ -346,7 +376,8 @@ class _LandingScreenState extends State<LandingScreen> {
 
       // Do NOT save temperature for TTS models
       if (selectedProvider != LlmProvider.kokoro &&
-          selectedProvider != LlmProvider.cosyVoice) {
+          selectedProvider != LlmProvider.cosyVoice &&
+          selectedProvider != LlmProvider.meloTts) {
         inputParams['temperature'] = effectiveTemperature;
       }
 
@@ -397,8 +428,8 @@ class _LandingScreenState extends State<LandingScreen> {
       assemblyConfig: audioConfig,
       whisperConfig: localWhisperConfig,
       imageConfig: imageConfig,
-      kokoroConfig:
-          kokoroConfig, // Pass Kokoro Config (Also used for CosyVoice)
+      kokoroConfig: kokoroConfig,
+      meloConfig: meloConfig, // <--- ADD THIS LINE HERE
       audioService: _audioService,
       imageService: _imageService,
       aiService: _aiService,
@@ -490,10 +521,16 @@ Fix mistakes, remove fluff, and keep the same meaning.
     if (selectedProvider == LlmProvider.localWhisper)
       return localWhisperConfig.toJson();
 
-    // Save TTS params for Kokoro or CosyVoice
+    // FIX: Separate Melo from Kokoro/CosyVoice
+    if (selectedProvider == LlmProvider.meloTts) {
+      return meloConfig
+          .toJson(); // Now includes accent, language, speed, noiseScale
+    }
+
     if (selectedProvider == LlmProvider.kokoro ||
-        selectedProvider == LlmProvider.cosyVoice)
+        selectedProvider == LlmProvider.cosyVoice) {
       return kokoroConfig.toJson();
+    }
 
     return {};
   }
@@ -657,12 +694,13 @@ Fix mistakes, remove fluff, and keep the same meaning.
                         setState(() => selectedProvider = p),
                   ),
                 ),
-                // Show Settings button if Kokoro OR CosyVoice is selected
+                // Show Settings button if Kokoro OR CosyVoice OR Melo is selected
                 if (selectedProvider == LlmProvider.kokoro ||
-                    selectedProvider == LlmProvider.cosyVoice) ...[
+                    selectedProvider == LlmProvider.cosyVoice ||
+                    selectedProvider == LlmProvider.meloTts) ...[
                   const SizedBox(width: 8),
                   IconButton(
-                    onPressed: _showKokoroConfig, // Reuse Config Dialog
+                    onPressed: _showTtsSettings, // Reuse Config Dialog
                     icon: const Icon(Icons.tune),
                     tooltip: "TTS Settings",
                     style: IconButton.styleFrom(
@@ -841,10 +879,11 @@ Fix mistakes, remove fluff, and keep the same meaning.
 
   Widget _buildTemperatureSlider() {
     // 1. Determine if slider should be enabled
-    // Disable for TTS models (Kokoro, CosyVoice) or when loading
+    // Disable for TTS models (Kokoro, CosyVoice, Melo) or when loading
     bool isEnabled =
         selectedProvider != LlmProvider.kokoro &&
         selectedProvider != LlmProvider.cosyVoice &&
+        selectedProvider != LlmProvider.meloTts &&
         !isLoading;
 
     return Column(
@@ -937,7 +976,7 @@ Fix mistakes, remove fluff, and keep the same meaning.
       );
     }
 
-    // === 2. AUDIO OUTPUT (Kokoro & CosyVoice) ===
+    // === 2. AUDIO OUTPUT (Kokoro & CosyVoice & Melo) ===
     if (audioOutputBytes != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
