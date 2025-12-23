@@ -29,6 +29,8 @@ enum LlmProvider {
   deepSeek, // L4
   localGemma, // Text-Only (1B)
   localGemma4b,
+  nemotronmini,
+  mistralnemoinitron,
   localLlama3_2_1b,
   localPhi3_5_mini, // Gemma 3 4B (Vision)
   qwen, // Local Qwen Support
@@ -75,6 +77,10 @@ extension ProviderDisplay on LlmProvider {
         return "Phi-3.5 Mini (3.8B)";
       case LlmProvider.localGemma4b:
         return "Local Gemma 3";
+      case LlmProvider.nemotronmini:
+        return "Nemotron mini";
+      case LlmProvider.mistralnemoinitron:
+        return "Mistral Nemo Minitron";
       case LlmProvider.qwen:
         return "Local Qwen";
       case LlmProvider.assemblyAi:
@@ -693,6 +699,18 @@ class LmStudioService {
       case LlmProvider.localGemma4b:
         url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
         body['model'] = "gemma-3-4b";
+        break;
+
+      case LlmProvider.nemotronmini:
+        url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
+        // IMPORTANT: Copy the exact ID from LM Studio's "My Models" tab
+        body['model'] = "nemotron-mini-4b-instruct";
+        break;
+
+      case LlmProvider.mistralnemoinitron:
+        url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
+        // IMPORTANT: Copy the exact ID from LM Studio's "My Models" tab
+        body['model'] = "mistral-nemo-minitron-8b-chat-i1";
         break;
 
       case LlmProvider.localPhi3_5_mini:

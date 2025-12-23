@@ -178,6 +178,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       await _googleSignIn.signOut();
     } catch (error) {
+      print("GOOGLE SIGN IN ERROR: $error");
       showMessage("An error occurred during Google Sign-In.");
     }
 
