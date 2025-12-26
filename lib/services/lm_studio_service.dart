@@ -31,6 +31,7 @@ enum LlmProvider {
   localGemma4b,
   nemotronmini,
   mistralnemoinitron,
+  nemotronnano,
   localLlama3_2_1b,
   localPhi3_5_mini, // Gemma 3 4B (Vision)
   qwen, // Local Qwen Support
@@ -81,6 +82,8 @@ extension ProviderDisplay on LlmProvider {
         return "Nemotron mini";
       case LlmProvider.mistralnemoinitron:
         return "Mistral Nemo Minitron";
+      case LlmProvider.nemotronnano:
+        return "Nemotron Nano";
       case LlmProvider.qwen:
         return "Local Qwen";
       case LlmProvider.assemblyAi:
@@ -703,14 +706,17 @@ class LmStudioService {
 
       case LlmProvider.nemotronmini:
         url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
-        // IMPORTANT: Copy the exact ID from LM Studio's "My Models" tab
         body['model'] = "nemotron-mini-4b-instruct";
         break;
 
       case LlmProvider.mistralnemoinitron:
         url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
-        // IMPORTANT: Copy the exact ID from LM Studio's "My Models" tab
         body['model'] = "mistral-nemo-minitron-8b-chat-i1";
+        break;
+
+      case LlmProvider.nemotronnano:
+        url = "${ApiConstants.lmStudioUrl}/v1/chat/completions";
+        body['model'] = "llama-3-1-nemotron-nano-8b-v1-i";
         break;
 
       case LlmProvider.localPhi3_5_mini:
