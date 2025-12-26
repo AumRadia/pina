@@ -1,5 +1,3 @@
-// lib/screens/main_menu_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:pina/screens/landing.dart';
 import 'package:pina/screens/loginscreen.dart';
